@@ -295,22 +295,32 @@ async function main() {
     { nombre: 'Arroz a la cubana',                     categoria: 'Menú',                 precio: 11.00, tipoStock: 'ilimitado', stock: 0 },
   ];
 
-  // Cargar productos sin duplicar (buscar por nombre + activo)
+  // Cargar productos sin duplicar y reactivar si existían
   let creados = 0;
   let existentes = 0;
   for (const p of carta) {
     const existe = await prisma.producto.findFirst({
-      where: { nombre: p.nombre, activo: true }
+      where: { nombre: p.nombre }
     });
     if (!existe) {
       await prisma.producto.create({ data: p });
       creados++;
     } else {
+      await prisma.producto.update({
+        where: { id: existe.id },
+        data: {
+          activo: true,
+          precio: p.precio,
+          categoria: p.categoria,
+          tipoStock: p.tipoStock || 'ilimitado',
+          requiereGuarnicion: p.requiereGuarnicion || false,
+        }
+      });
       existentes++;
     }
   }
 
-  console.log(`✅ Carta cargada: ${creados} nuevos productos, ${existentes} ya existían.`);
+  console.log(`✅ Carta cargada: ${creados} nuevos productos, ${existentes} reactivados/actualizados.`);
   console.log('✅ Seed completado correctamente.');
 }
 
