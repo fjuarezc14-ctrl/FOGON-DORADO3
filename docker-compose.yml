@@ -1,5 +1,7 @@
 version: '3.8'
 
+name: fogon-dorado-3
+
 services:
   # --- Frontend: React/Vite ---
   web:
@@ -7,14 +9,14 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     ports:
-      - "5173:5173"
+      - "5176:5176"
     volumes:
       - .:/app
       - /app/node_modules
     environment:
       - NODE_ENV=development
     depends_on:
-      - db
+      - backend
 
   # --- Backend: Node.js/Express ---
   backend:
@@ -22,7 +24,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile.dev
     ports:
-      - "3000:3000"
+      - "3002:3002"
     volumes:
       - ./backend:/app
       - /app/node_modules
@@ -30,7 +32,7 @@ services:
       - ./backend/.env          # Lee TODAS las variables desde el archivo .env del backend
     environment:
       - DATABASE_URL=postgresql://fogon_user:fogon_password@db:5432/fogon_dorado
-      - PORT=3000
+      - PORT=3002
     depends_on:
       db:
         condition: service_healthy
@@ -40,14 +42,14 @@ services:
   db:
     image: postgres:16-alpine
     ports:
-      - "5435:5432"
+      - "5438:5432"
 
     environment:
       - POSTGRES_USER=fogon_user
       - POSTGRES_PASSWORD=fogon_password
       - POSTGRES_DB=fogon_dorado
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_3:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U fogon_user -d fogon_dorado"]
       interval: 5s
@@ -55,4 +57,4 @@ services:
       retries: 10
 
 volumes:
-  postgres_data:
+  postgres_data_3:

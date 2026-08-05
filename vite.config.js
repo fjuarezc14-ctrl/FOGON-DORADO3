@@ -11,13 +11,13 @@ export default defineConfig({
   server: {
     allowedHosts: ['fogon.valetec.pe', 'localhost', '127.0.0.1'],
     host: true, // Listen on all local IPs (needed for Docker)
-    port: 5173,
+    port: 5176,
     watch: {
       usePolling: true
     },
     proxy: {
       '/api': {
-        target: 'http://backend:3000', // Points to the backend service inside Docker, or http://localhost:3000 if running locally
+        target: 'http://backend:3002', // Points to the backend service inside Docker, or http://localhost:3002 if running locally
         changeOrigin: true,
         rewrite: (path) => path,
       }

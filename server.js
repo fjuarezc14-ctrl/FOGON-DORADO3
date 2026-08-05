@@ -58,7 +58,7 @@ app.get('/api/mesas', (req, res) => {
 });
 
 // Iniciar el servidor
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => {
     console.log(`🚀 Servidor backend corriendo en http://localhost:${PORT}`);
 });

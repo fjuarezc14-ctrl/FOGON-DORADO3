@@ -1193,6 +1193,24 @@ app.patch('/api/pedidos/:id/cancelar', async (req, res) => {
       },
     });
 
+    // Si existía una Venta asociada a este pedido, anular su total
+    const ventaAsociada = await prisma.venta.findUnique({ where: { pedidoId: id } });
+    if (ventaAsociada) {
+      await prisma.venta.update({
+        where: { id: ventaAsociada.id },
+        data: {
+          total: 0,
+          igv: 0,
+          subtotal: 0,
+          montoEfectivo: 0,
+          montoTarjeta: 0,
+          montoYape: 0,
+          descuentoAplicado: 0,
+          estadoSunat: 'ANULADO',
+        }
+      });
+    }
+
     // Restaurar stock de productos limitados
     for (const item of pedido.items) {
       if (item.producto.tipoStock === 'limitado') {
@@ -2214,6 +2232,89 @@ app.delete('/api/usuarios/:id', async (req, res) => {
 // CAJA / VENTAS
 // ============================================================
 
+// PATCH /api/ventas/:ventaId/anular → Anular/Devolver una venta ya cobrada/entregada
+app.patch('/api/ventas/:ventaId/anular', async (req, res) => {
+  const ventaId = parseInt(req.params.ventaId);
+  const { pin, motivo, canceladoPor } = req.body;
+
+  try {
+    if (!pin) {
+      return res.status(400).json({ error: 'El PIN de autorización es obligatorio.' });
+    }
+    const usuario = await prisma.usuario.findFirst({
+      where: { pin: String(pin), activo: true }
+    });
+    if (!usuario) {
+      return res.status(401).json({ error: 'PIN incorrecto o usuario no autorizado.' });
+    }
+
+    const venta = await prisma.venta.findUnique({
+      where: { id: ventaId },
+      include: {
+        pedido: {
+          include: { items: { include: { producto: true } } }
+        }
+      }
+    });
+
+    if (!venta) {
+      return res.status(404).json({ error: 'Venta no encontrada.' });
+    }
+
+    if (venta.pedido?.estado === 'Cancelado' || venta.estadoSunat === 'ANULADO') {
+      return res.status(400).json({ error: 'Esta venta ya ha sido devuelta / anulada anteriormente.' });
+    }
+
+    const autorizador = canceladoPor || usuario.nombre;
+    const motivoTexto = motivo || 'Devolución de pedido por cliente';
+
+    // 1. Actualizar el pedido
+    if (venta.pedidoId) {
+      await prisma.pedido.update({
+        where: { id: venta.pedidoId },
+        data: {
+          estado: 'Cancelado',
+          canceladoPor: autorizador,
+          motivoCancela: motivoTexto,
+          canceladoEn: new Date(),
+        }
+      });
+    }
+
+    // 2. Actualizar la venta (total a 0, estadoSunat = ANULADO)
+    await prisma.venta.update({
+      where: { id: ventaId },
+      data: {
+        total: 0,
+        igv: 0,
+        subtotal: 0,
+        montoEfectivo: 0,
+        montoTarjeta: 0,
+        montoYape: 0,
+        descuentoAplicado: 0,
+        estadoSunat: 'ANULADO',
+      }
+    });
+
+    // 3. Devolver stock si los productos tienen tipoStock limitado
+    if (venta.pedido?.items) {
+      for (const item of venta.pedido.items) {
+        if (item.producto?.tipoStock === 'limitado') {
+          await prisma.producto.update({
+            where: { id: item.productoId },
+            data: { stock: { increment: item.cantidad } }
+          });
+        }
+      }
+    }
+
+    res.json({ ok: true, mensaje: 'Venta devuelta y anulada correctamente.', ventaId });
+  } catch (err) {
+    console.error('Error al anular venta:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PATCH /api/ventas/:ventaId/metodo-pago → Corregir método de pago (requiere PIN Administrador)
 app.patch('/api/ventas/:ventaId/metodo-pago', async (req, res) => {
   const { ventaId } = req.params;
@@ -2751,7 +2852,6 @@ app.get('/api/ventas', async (req, res) => {
     const ventas = await prisma.venta.findMany({
       where: { 
         createdAt: filtroFecha,
-        pedido: { estado: { not: 'Cancelado' } }
       },
       include: {
         pedido: {
@@ -2764,44 +2864,52 @@ app.get('/api/ventas', async (req, res) => {
       orderBy: { createdAt: 'desc' },
     });
 
-    const formateadas = ventas.map(v => ({
-      id: v.id,
-      pedidoId: v.pedidoId,
-      tipoComprobante: v.tipoComprobante,
-      numDocumento: v.numDocumento,
-      nombreCliente: v.nombreCliente,
-      clienteDireccion: v.clienteDireccion || '',
-      total: v.total,
-      igv: v.igv,
-      subtotal: v.subtotal,
-      metodoPago: v.metodoPago,
-      montoEfectivo: v.montoEfectivo,
-      montoTarjeta: v.montoTarjeta,
-      montoYape: v.montoYape,
-      hora: v.createdAt.toLocaleTimeString('es-PE', {
-        hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima',
-      }),
-      mesaNum: v.pedido?.mesa?.numero || null,
-      mesero: v.pedido?.mesero || null,
-      codigoPedidosYa: v.pedido?.codigoPedidosYa || null,
-      tipoEntrega: v.pedido?.tipoEntrega || 'salon',
-      estadoPedido: v.pedido?.estado || null,
-      createdAt: v.createdAt.toISOString(),
-      estadoNubefact: v.estadoNubefact,
-      serie: v.serie,
-      numero: v.numero,
-      itemsResumen: v.pedido?.items
-        ?.filter(i => i.precio > 0 || BARRA_CATEGORIAS.includes(i.producto?.categoria) || i.notas?.includes('CORTESÍA') || i.nombre?.includes('CORTESÍA'))
-        ?.map(i => `${i.cantidad}x ${i.nombre}`).join(', ') || '',
+    const formateadas = ventas.map(v => {
+      const montoOriginal = v.pedido?.items?.reduce((acc, i) => acc + (i.precio * i.cantidad), 0) || v.total || 0;
+      return {
+        id: v.id,
+        pedidoId: v.pedidoId,
+        tipoComprobante: v.tipoComprobante,
+        numDocumento: v.numDocumento,
+        nombreCliente: v.nombreCliente,
+        clienteDireccion: v.clienteDireccion || '',
+        total: v.total,
+        montoOriginal: montoOriginal,
+        igv: v.igv,
+        subtotal: v.subtotal,
+        metodoPago: v.metodoPago,
+        montoEfectivo: v.montoEfectivo,
+        montoTarjeta: v.montoTarjeta,
+        montoYape: v.montoYape,
+        hora: v.createdAt.toLocaleTimeString('es-PE', {
+          hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima',
+        }),
+        mesaNum: v.pedido?.mesa?.numero || null,
+        mesero: v.pedido?.mesero || null,
+        codigoPedidosYa: v.pedido?.codigoPedidosYa || null,
+        tipoEntrega: v.pedido?.tipoEntrega || 'salon',
+        estadoPedido: v.pedido?.estado || null,
+        canceladoPor: v.pedido?.canceladoPor || null,
+        motivoCancela: v.pedido?.motivoCancela || null,
+        canceladoEn: v.pedido?.canceladoEn ? v.pedido.canceladoEn.toISOString() : null,
+        createdAt: v.createdAt.toISOString(),
+        estadoNubefact: v.estadoNubefact,
+        estadoSunat: v.estadoSunat,
+        serie: v.serie,
+        numero: v.numero,
+        itemsResumen: v.pedido?.items
+          ?.filter(i => i.precio > 0 || BARRA_CATEGORIAS.includes(i.producto?.categoria) || i.notas?.includes('CORTESÍA') || i.nombre?.includes('CORTESÍA'))
+          ?.map(i => `${i.cantidad}x ${i.nombre}`).join(', ') || '',
 
-      items: v.pedido?.items
-        ?.filter(i => i.precio > 0 || BARRA_CATEGORIAS.includes(i.producto?.categoria) || i.notas?.includes('CORTESÍA') || i.nombre?.includes('CORTESÍA'))
-        ?.map(i => ({
-          nombre: i.nombre,
-          cant: i.cantidad,
-          precio: i.precio
-        })) || [],
-    }));
+        items: v.pedido?.items
+          ?.filter(i => i.precio > 0 || BARRA_CATEGORIAS.includes(i.producto?.categoria) || i.notas?.includes('CORTESÍA') || i.nombre?.includes('CORTESÍA'))
+          ?.map(i => ({
+            nombre: i.nombre,
+            cant: i.cantidad,
+            precio: i.precio
+          })) || [],
+      };
+    });
 
     res.json(formateadas);
   } catch (err) {
@@ -3260,8 +3368,12 @@ app.get('/api/reportes/contable', async (req, res) => {
       prisma.venta.findMany({ 
         where: { 
           createdAt: filtroFecha,
-          pedido: { estado: { not: 'Cancelado' } }
-        } 
+        },
+        include: {
+          pedido: {
+            include: { items: true }
+          }
+        }
       }),
       prisma.compra.findMany({ where: { creadoEn: filtroFecha } }),
     ]);
@@ -3415,7 +3527,7 @@ async function ejecutarMigracionRequiereGuarnicion() {
   }
 }
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3002;
 app.listen(PORT, async () => {
   console.log(`🚀 Backend Fogón Dorado v3 corriendo en http://localhost:${PORT}`);
   await ejecutarMigracionMontos();

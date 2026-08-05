@@ -106,6 +106,9 @@ export const api = {
   cambiarTipoEntrega: (ventaId, body) => fetch(`${API_BASE}/api/ventas/${ventaId}/tipo-entrega`, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   }).then(r => r.json()),
+  anularVenta: (ventaId, body) => fetch(`${API_BASE}/api/ventas/${ventaId}/anular`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }).then(r => r.json()),
 
   // Compras
   getCompras: (desde, hasta) => fetch(`${API_BASE}/api/compras${desde && hasta ? `?desde=${desde}&hasta=${hasta}` : ''}`).then(r => r.json()),

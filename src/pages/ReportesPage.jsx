@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Download, TrendingUp, TrendingDown, DollarSign, XCircle, Users, Truck, Calendar, Search, Receipt, Printer, X } from 'lucide-react';
+import { Download, TrendingUp, TrendingDown, DollarSign, XCircle, Users, Truck, Calendar, Search, Receipt, Printer, X, Ban } from 'lucide-react';
 import { api } from '../api';
 
 
@@ -273,16 +273,17 @@ export default function ReportesPage() {
       // Insertar Ventas
       ventasData.forEach(v => {
         const date = v.createdAt ? v.createdAt.split('T')[0] : '';
+        const esAnulado = v.estadoPedido === 'Cancelado' || v.estadoSunat === 'ANULADO' || v.total === 0;
         rows.push([
           'VENTA',
           date,
-          v.tipoComprobante,
+          v.tipoComprobante + (esAnulado ? ' (ANULADO)' : ''),
           v.numDocumento || 'S/D',
           v.nombreCliente || 'PÚBLICO GENERAL',
-          v.metodoPago,
-          v.subtotal.toFixed(2),
-          v.igv.toFixed(2),
-          v.total.toFixed(2)
+          esAnulado ? 'ANULADO' : v.metodoPago,
+          esAnulado ? '0.00' : v.subtotal.toFixed(2),
+          esAnulado ? '0.00' : v.igv.toFixed(2),
+          esAnulado ? '0.00' : v.total.toFixed(2)
         ]);
       });
 
@@ -557,8 +558,10 @@ export default function ReportesPage() {
                 <tbody className="divide-y divide-slate-50 text-sm bg-white font-bold text-slate-700">
                   {(() => {
                     const filtradas = ventas;
-                    return filtradas.length > 0 ? filtradas.map(v => (
-                      <tr key={v.id} className="hover:bg-slate-50/80 transition-colors">
+                    return filtradas.length > 0 ? filtradas.map(v => {
+                      const esDevuelto = v.estadoPedido === 'Cancelado' || v.estadoSunat === 'ANULADO' || v.total === 0;
+                      return (
+                      <tr key={v.id} className={`hover:bg-slate-50/80 transition-colors ${esDevuelto ? 'bg-rose-50/30' : ''}`}>
                         <td className="px-6 py-4">
                           <div className="flex flex-col">
                             <span className="font-mono text-xs font-black text-slate-900">#VT-{v.id}</span>
@@ -570,6 +573,16 @@ export default function ReportesPage() {
                             <span className="font-bold text-slate-800 text-xs">
                               {v.tipoComprobante} {v.serie ? `${v.serie}-${String(v.numero).padStart(4, '0')}` : `#${v.id}`}
                             </span>
+                            {esDevuelto && (
+                              <span className="bg-rose-100 text-rose-700 text-[10px] font-black px-2 py-0.5 rounded-md inline-flex items-center gap-1 border border-rose-200 uppercase w-fit mt-1">
+                                <Ban className="w-3 h-3" /> ANULADO / DEVUELTO
+                              </span>
+                            )}
+                            {esDevuelto && v.motivoCancela && (
+                              <span className="text-[10px] text-rose-600 font-bold block mt-0.5 max-w-xs leading-tight">
+                                Motivo: {v.motivoCancela} {v.canceladoPor ? `(${v.canceladoPor})` : ''}
+                              </span>
+                            )}
                             <span className="text-[10px] text-slate-500 uppercase tracking-tight font-medium mt-0.5">
                               {(() => {
                                 if (v.codigoPedidosYa?.startsWith('DELIVERY -')) {
@@ -583,49 +596,17 @@ export default function ReportesPage() {
                                 return v.nombreCliente || 'Consumidor Final';
                               })()}
                             </span>
-                            {(() => {
-                              const parsed = parseDeliveryInfo(v.codigoPedidosYa) || parseDeliveryInfo(v.nombreCliente);
-                              if (!parsed) return null;
-                              return (
-                                <span className="text-[9px] text-slate-400 font-mono mt-0.5 block leading-none">
-                                  📞 {parsed.telefono} · 📍 {parsed.direccion.substring(0, 20)}{parsed.direccion.length > 20 ? '...' : ''}
-                                </span>
-                              );
-                            })()}
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          {v.codigoPedidosYa ? (
-                            v.codigoPedidosYa.startsWith('DELIVERY -') ? (
-                              <span className="bg-indigo-50 border border-indigo-200 text-indigo-700 text-[10px] font-black uppercase px-2 py-0.5 rounded-md whitespace-nowrap">
-                                🛵 DEL: {(() => {
-                                  const parsed = parseDeliveryInfo(v.codigoPedidosYa);
-                                  const name = parsed ? parsed.nombre : v.codigoPedidosYa.replace('DELIVERY - ', '');
-                                  const first = name.split(/\s+/)[0] || '';
-                                  return first.substring(0, 10);
-                                })()}
-                              </span>
-                            ) : v.codigoPedidosYa.startsWith('LLEVAR -') ? (
-                              <span className="bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-black uppercase px-2 py-0.5 rounded-md whitespace-nowrap">
-                                🛍️ LLEVAR: {(() => {
-                                  const name = v.codigoPedidosYa.replace('LLEVAR - ', '');
-                                  const first = name.split(/\s+/)[0] || '';
-                                  return first.substring(0, 10);
-                                })()}
-                              </span>
-                            ) : (
-                              <span className="bg-blue-50 border border-blue-200 text-blue-700 text-[10px] font-black uppercase px-2 py-0.5 rounded-md font-mono whitespace-nowrap">
-                                🛵 PY: {v.codigoPedidosYa}
-                              </span>
-                            )
-                          ) : (
-                            <span className="bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-black uppercase px-2 py-0.5 rounded-md whitespace-nowrap">
-                              🍽️ Mesa {v.mesaNum || 'S/M'}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4">
                           {(() => {
+                            if (esDevuelto) {
+                              return (
+                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wide border bg-rose-50 border-rose-200 text-rose-700">
+                                  ANULADO
+                                </span>
+                              );
+                            }
                             let method = v.metodoPago;
                             if (method === 'PedidosYa' && v.codigoPedidosYa) {
                               if (v.codigoPedidosYa.startsWith('DELIVERY -') || v.codigoPedidosYa.startsWith('LLEVAR -')) {
@@ -647,8 +628,17 @@ export default function ReportesPage() {
                         <td className="px-6 py-4 max-w-xs truncate text-xs font-bold text-slate-500 uppercase" title={v.itemsResumen}>
                           {v.itemsResumen}
                         </td>
-                        <td className="px-6 py-4 text-right font-mono font-black text-slate-900 text-base">
-                          S/ {v.total.toFixed(2)}
+                        <td className="px-6 py-4 text-right font-mono">
+                          {esDevuelto ? (
+                            <div className="flex flex-col items-end">
+                              <span className="text-rose-600 font-mono font-black text-base leading-none">S/ 0.00</span>
+                              <span className="text-slate-400 font-mono text-xs line-through block font-bold mt-1">
+                                S/ {(v.montoOriginal || v.subtotal || 0).toFixed(2)}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="font-black text-slate-900 text-base">S/ {v.total.toFixed(2)}</span>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-center">
                           <div className="flex items-center justify-center gap-2">
@@ -671,7 +661,8 @@ export default function ReportesPage() {
                           </div>
                         </td>
                       </tr>
-                    )) : (
+                      );
+                    }) : (
                       <tr>
                         <td colSpan="7" className="text-center py-12 text-slate-400 font-bold uppercase text-xs">
                           No se encontraron comprobantes emitidos en este rango de fechas.
