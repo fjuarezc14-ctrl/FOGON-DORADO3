@@ -303,7 +303,12 @@ async function main() {
       where: { nombre: p.nombre }
     });
     if (!existe) {
-      await prisma.producto.create({ data: p,  activo: true });
+      await prisma.producto.create({
+        data: {
+          ...p,
+          activo: true // Para que los productos nuevos se creen activados
+        }
+      });
       creados++;
     } else {
       await prisma.producto.update({
