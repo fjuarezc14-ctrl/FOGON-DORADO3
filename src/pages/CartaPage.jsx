@@ -282,7 +282,7 @@ export default function CartaPage({ currentUser }) {
       {/* ── PANEL DE OFERTAS (solo Admin) ─────────────────── */}
       {isAdmin && (
         <div className="mb-6 bg-gradient-to-br from-amber-50 to-orange-50 rounded-3xl border border-amber-200/60 shadow-sm overflow-hidden">
-          <button
+          <div
             onClick={() => setOfertaTab(!ofertaTab)}
             className="w-full flex items-center justify-between p-4 md:p-5 text-left"
           >
