@@ -35,7 +35,6 @@ async function main() {
 
   // ── 3. Carta completa de productos ────────────────────────
   const carta = [
-
     // ── POLLOS A LA BRASA (→ Cocina) ──────────────────────
     { nombre: '1 Pollo a la Brasa',                   categoria: 'Pollos a la Brasa',    precio: 68.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: '1/2 Pollo a la Brasa',                 categoria: 'Pollos a la Brasa',    precio: 36.00, tipoStock: 'ilimitado', stock: 0 },
@@ -136,27 +135,22 @@ async function main() {
     { nombre: 'Combo Junior',                          categoria: 'Combos',               precio: 18.00, tipoStock: 'ilimitado', stock: 0 },
 
     // ── BEBIDAS Y REFRESCOS (→ Barra) ─────────────────────
-    // Chicha Morada
     { nombre: 'Chicha Morada - Vaso',                  categoria: 'Bebidas y Refrescos',  precio: 3.50,  tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Chicha Morada - 1/2 Lt',               categoria: 'Bebidas y Refrescos',  precio: 5.00,  tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Chicha Morada - 1 Lt',                 categoria: 'Bebidas y Refrescos',  precio: 8.00,  tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Chicha Morada - 1 1/2 Lt',             categoria: 'Bebidas y Refrescos',  precio: 11.00, tipoStock: 'ilimitado', stock: 0 },
-    // Maracuyá
     { nombre: 'Maracuyá - Vaso',                       categoria: 'Bebidas y Refrescos',  precio: 3.50,  tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Maracuyá - 1/2 Lt',                    categoria: 'Bebidas y Refrescos',  precio: 5.00,  tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Maracuyá - 1 Lt',                      categoria: 'Bebidas y Refrescos',  precio: 8.00,  tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Maracuyá - 1 1/2 Lt',                  categoria: 'Bebidas y Refrescos',  precio: 11.00, tipoStock: 'ilimitado', stock: 0 },
-    // Limonada
     { nombre: 'Limonada - Vaso',                       categoria: 'Bebidas y Refrescos',  precio: 3.50,  tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Limonada - 1/2 Lt',                    categoria: 'Bebidas y Refrescos',  precio: 5.00,  tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Limonada - 1 Lt',                      categoria: 'Bebidas y Refrescos',  precio: 8.00,  tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Limonada - 1 1/2 Lt',                  categoria: 'Bebidas y Refrescos',  precio: 11.00, tipoStock: 'ilimitado', stock: 0 },
-    // Naranjada
     { nombre: 'Naranjada - Vaso',                      categoria: 'Bebidas y Refrescos',  precio: 3.50,  tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Naranjada - 1/2 Lt',                   categoria: 'Bebidas y Refrescos',  precio: 5.00,  tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Naranjada - 1 Lt',                     categoria: 'Bebidas y Refrescos',  precio: 8.00,  tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Naranjada - 1 1/2 Lt',                 categoria: 'Bebidas y Refrescos',  precio: 11.00, tipoStock: 'ilimitado', stock: 0 },
-    // Jugos de papaya, piña, surtido
     { nombre: 'Jugo de Papaya - Vaso',                 categoria: 'Bebidas y Refrescos',  precio: 6.00,  tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Jugo de Papaya - 1/2 Lt',              categoria: 'Bebidas y Refrescos',  precio: 10.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Jugo de Papaya - 1 Lt',                categoria: 'Bebidas y Refrescos',  precio: 15.00, tipoStock: 'ilimitado', stock: 0 },
@@ -169,7 +163,6 @@ async function main() {
     { nombre: 'Jugo Surtido - 1/2 Lt',                categoria: 'Bebidas y Refrescos',  precio: 10.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Jugo Surtido - 1 Lt',                  categoria: 'Bebidas y Refrescos',  precio: 15.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Jugo Surtido - 1 1/2 Lt',              categoria: 'Bebidas y Refrescos',  precio: 19.00, tipoStock: 'ilimitado', stock: 0 },
-    // Jugos especiales
     { nombre: 'Jugo de Fresa - Vaso',                  categoria: 'Bebidas y Refrescos',  precio: 7.00,  tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Jugo de Fresa - 1/2 Lt',               categoria: 'Bebidas y Refrescos',  precio: 12.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Jugo de Fresa - 1 Lt',                 categoria: 'Bebidas y Refrescos',  precio: 18.00, tipoStock: 'ilimitado', stock: 0 },
@@ -190,12 +183,10 @@ async function main() {
     { nombre: 'Jugo Especial - 1/2 Lt',               categoria: 'Bebidas y Refrescos',  precio: 13.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Jugo Especial - 1 Lt',                 categoria: 'Bebidas y Refrescos',  precio: 18.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Jugo Especial - 1 1/2 Lt',             categoria: 'Bebidas y Refrescos',  precio: 22.00, tipoStock: 'ilimitado', stock: 0 },
-    // Batidos
     { nombre: 'Batido - Vaso',                         categoria: 'Bebidas y Refrescos',  precio: 10.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Batido - 1/2 Lt',                      categoria: 'Bebidas y Refrescos',  precio: 14.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Batido - 1 Lt',                        categoria: 'Bebidas y Refrescos',  precio: 18.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Batido - 1 1/2 Lt',                    categoria: 'Bebidas y Refrescos',  precio: 22.00, tipoStock: 'ilimitado', stock: 0 },
-    // Gaseosas y cafés
     { nombre: 'Gaseosa 3 Lt',                          categoria: 'Bebidas y Refrescos',  precio: 17.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Gaseosa 1 1/2 Lt',                     categoria: 'Bebidas y Refrescos',  precio: 10.50, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Gaseosa 1 Lt',                         categoria: 'Bebidas y Refrescos',  precio: 8.00,  tipoStock: 'ilimitado', stock: 0 },
@@ -217,7 +208,6 @@ async function main() {
     { nombre: 'Cerveza Blanca Chica',                  categoria: 'Cervezas',             precio: 5.50,  tipoStock: 'ilimitado', stock: 0 },
 
     // ── BAR Y COCTELES (→ Barra) ──────────────────────────
-    // Cocteles por copa
     { nombre: 'Cóctel Fogón Dorado',                   categoria: 'Bar y Cocteles',       precio: 25.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Baileys Colado',                        categoria: 'Bar y Cocteles',       precio: 22.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Whisky Etiqueta Negra (Copa)',           categoria: 'Bar y Cocteles',       precio: 22.00, tipoStock: 'ilimitado', stock: 0 },
@@ -249,18 +239,15 @@ async function main() {
     { nombre: 'Pisco Shot (Puro)',                     categoria: 'Bar y Cocteles',       precio: 12.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Perú Libre',                            categoria: 'Bar y Cocteles',       precio: 12.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Cuba Libre',                            categoria: 'Bar y Cocteles',       precio: 12.00, tipoStock: 'ilimitado', stock: 0 },
-    // Por litro
     { nombre: 'Chilcano de Pisco x Litro',             categoria: 'Bar y Cocteles',       precio: 38.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Perú Libre x Litro',                    categoria: 'Bar y Cocteles',       precio: 38.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Cuba Libre x Litro',                    categoria: 'Bar y Cocteles',       precio: 38.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Pisco Sour x Litro',                    categoria: 'Bar y Cocteles',       precio: 38.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Aguaymanto Sour x Litro',               categoria: 'Bar y Cocteles',       precio: 38.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Coca Sour x Litro',                     categoria: 'Bar y Cocteles',       precio: 38.00, tipoStock: 'ilimitado', stock: 0 },
-    // Sangrías
     { nombre: 'Sangría Especial 1 Lt',                 categoria: 'Bar y Cocteles',       precio: 52.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Sangría Española o Hawaiana 1 Lt',      categoria: 'Bar y Cocteles',       precio: 37.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Sangría Española o Hawaiana 1/2 Lt',    categoria: 'Bar y Cocteles',       precio: 20.00, tipoStock: 'ilimitado', stock: 0 },
-    // Vinos (por botella)
     { nombre: 'Vino Navarro Correa (Botella)',          categoria: 'Bar y Cocteles',       precio: 80.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Vino Cousiño Macul Don Matías (Bot.)',   categoria: 'Bar y Cocteles',       precio: 80.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Vino Marqués de Riscal (Botella)',       categoria: 'Bar y Cocteles',       precio: 80.00, tipoStock: 'ilimitado', stock: 0 },
@@ -275,7 +262,6 @@ async function main() {
     { nombre: 'Vino Tabernero Gran Tinto (Botella)',    categoria: 'Bar y Cocteles',       precio: 35.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Vino Queirolo (Botella)',                categoria: 'Bar y Cocteles',       precio: 33.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Vino Tabernero (Botella)',               categoria: 'Bar y Cocteles',       precio: 33.00, tipoStock: 'ilimitado', stock: 0 },
-    // Licores por botella
     { nombre: 'Whisky Etiqueta Negra (Botella)',        categoria: 'Bar y Cocteles',       precio: 200.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Anís del Mono (Botella)',                categoria: 'Bar y Cocteles',       precio: 190.00, tipoStock: 'ilimitado', stock: 0 },
     { nombre: 'Whisky Etiqueta Roja (Botella)',         categoria: 'Bar y Cocteles',       precio: 140.00, tipoStock: 'ilimitado', stock: 0 },
@@ -306,7 +292,8 @@ async function main() {
       await prisma.producto.create({
         data: {
           ...p,
-          activo: true // Para que los productos nuevos se creen activados
+          activo: true,
+          requiereGuarnicion: false
         }
       });
       creados++;
@@ -318,7 +305,7 @@ async function main() {
           precio: p.precio,
           categoria: p.categoria,
           tipoStock: p.tipoStock || 'ilimitado',
-          requiereGuarnicion: p.requiereGuarnicion || false,
+          requiereGuarnicion: false,
         }
       });
       existentes++;
