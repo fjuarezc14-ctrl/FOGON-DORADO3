@@ -303,7 +303,7 @@ async function main() {
       where: { nombre: p.nombre }
     });
     if (!existe) {
-      await prisma.producto.create({ data: p });
+      await prisma.producto.create({ data: p,  activo: true });
       creados++;
     } else {
       await prisma.producto.update({
