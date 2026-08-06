@@ -426,6 +426,14 @@ app.get('/api/status', (req, res) => {
   });
 });
 
+app.get('/api/empresa', (req, res) => {
+  res.json({
+    razonSocial: process.env.RAZON_SOCIAL || 'El Fogón Dorado',
+    ruc: process.env.RUC_EMPRESA || '10710311191',
+    direccion: process.env.DIRECCION_EMPRESA || 'Jr. Amalia Puga 821, Cajamarca',
+  });
+});
+
 // ============================================================
 // CONSULTA RUC/DNI SEGURA (APIsNetPe / Decolecta)
 // ============================================================
@@ -3598,7 +3606,7 @@ async function enviarAApisunat(venta, itemsRaw) {
 
   // En MODO DEMO simulamos una respuesta exitosa localmente
   if (MODO_DEMO) {
-    const rucEmpresa = "20496009259";
+    const rucEmpresa = process.env.RUC_EMPRESA || "10710311191";
     const numeroStr = String(venta.numero || 1);
     const tipoCompNum = venta.tipoComprobante === 'Factura' ? '01' : '03';
     return {

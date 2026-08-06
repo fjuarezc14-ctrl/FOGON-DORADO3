@@ -548,7 +548,7 @@ export default function CajaPage({ currentUser }) {
 
   const reimprimirComprobante = (v) => {
     if (!v) return;
-    const rucEmpresa = "R.U.C. N° 20496009259";
+    const rucEmpresa = "R.U.C. N° 10710311191";
     
     let serie = v.serie || (v.tipoComprobante === 'Factura' ? 'F001' : (v.tipoComprobante === 'Ticket' ? 'T001' : 'B001'));
     let correlativoStr = String(v.numero || (v.id % 10000)).padStart(4, '0');
@@ -1629,7 +1629,7 @@ export default function CajaPage({ currentUser }) {
     let igv = total - subtotal;
     let totalLetras = numeroALetras(total);
     let hashResumen = "gSbTDa" + Math.random().toString(36).substring(2, 8).toUpperCase() + "iIZDyirfA6TBPKJnEI=";
-    const rucEmpresa = "R.U.C. N° 20496009259";
+    const rucEmpresa = "R.U.C. N° 10710311191";
     let qrData = `${rucEmpresa}|${tipoComprobante === 'Factura' ? '01' : '03'}|${serie}|${correlativoStr}|${igv.toFixed(2)}|${total.toFixed(2)}|${fecha}|${tipoComprobante === 'Factura' ? '6' : (numDocumento?.length === 8 ? '1' : '0')}|${numDocumento || '00000000'}`;
     let enlacePdf = null;
 
@@ -2655,7 +2655,7 @@ export default function CajaPage({ currentUser }) {
                     <div>
                       <label className="block text-slate-500 font-bold mb-2 text-[10px] tracking-widest uppercase">{tipoComprobante === 'Factura' ? 'RUC del Cliente' : 'DNI del Cliente'}:</label>
                       <div className="flex gap-2">
-                        <input type="text" value={numDocumento} onChange={(e) => handleDocumentoChange(e.target.value)} placeholder={tipoComprobante === 'Factura' ? 'Ej. 20496009259' : 'Ej. 70443322'} className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500 font-mono" />
+                        <input type="text" value={numDocumento} onChange={(e) => handleDocumentoChange(e.target.value)} placeholder={tipoComprobante === 'Factura' ? 'Ej. 10710311191' : 'Ej. 70443322'} className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500 font-mono" />
 
                         <button onClick={buscarCliente} disabled={!numDocumento || isBuscando} className="bg-slate-900 text-white px-4 py-2 rounded-xl hover:bg-amber-500 hover:text-slate-900 transition-colors disabled:opacity-50 flex items-center justify-center shrink-0 shadow-md">
                           {isBuscando ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span> : <Search className="w-4 h-4" />}
@@ -3049,7 +3049,7 @@ export default function CajaPage({ currentUser }) {
                           type="text" 
                           value={deliveryDireccion} 
                           onChange={(e) => setDeliveryDireccion(e.target.value)} 
-                          placeholder="Ej: Av. Hoyos Rubio Nro. 338"
+                          placeholder="Ej: Jr. Amalia Puga 821"
                           className="w-full bg-white border border-slate-200 focus:border-blue-500 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800 focus:outline-none"
                         />
                       </div>
@@ -3386,7 +3386,7 @@ export default function CajaPage({ currentUser }) {
                               type="text" 
                               value={deliveryDireccion} 
                               onChange={(e) => setDeliveryDireccion(e.target.value)} 
-                              placeholder="Obligatorio (Ej. Av. Hoyos Rubio Nro. 338)" 
+                              placeholder="Obligatorio (Ej. Jr. Amalia Puga 821)" 
                               className="w-full bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800 focus:outline-none focus:border-blue-500" 
                             />
                           </div>
@@ -3763,8 +3763,8 @@ export default function CajaPage({ currentUser }) {
               {/* Vista del ticket térmico */}
               <div id="cierre-imprimible" className="bg-amber-50/70 border-2 border-dashed border-amber-200 rounded-2xl p-5 font-mono text-slate-800 text-xs shadow-sm mb-6 flex flex-col">
                 <div className="text-center border-b border-dashed border-slate-300 pb-3 mb-4">
-                  <h4 className="font-black text-sm text-slate-900 uppercase">NUEVO FOGÓN DORADO E.I.R.L.</h4>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">Av. Hoyos Rubio Nro. 338 · RUC: 20496009259</p>
+                  <h4 className="font-black text-sm text-slate-900 uppercase">EL FOGÓN DORADO</h4>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">Jr. Amalia Puga 821 · RUC: 10710311191</p>
                   <p className="text-[10px] text-slate-400 font-bold mt-1">CIERRE DE TURNO · ARQUEO DIARIO</p>
                 </div>
 
@@ -4359,7 +4359,7 @@ export default function CajaPage({ currentUser }) {
                         type="text"
                         value={editClienteDireccion}
                         onChange={e => setEditClienteDireccion(e.target.value)}
-                        placeholder="Ej. Av. Hoyos Rubio Nro. 338"
+                        placeholder="Ej. Jr. Amalia Puga 821"
                         className="w-full bg-white border border-slate-200 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none transition-all uppercase"
                       />
                     </div>
@@ -4620,10 +4620,10 @@ export default function CajaPage({ currentUser }) {
                 </div>
               )}
               
-              <div className="text-center font-bold" style={{ fontSize: '14px', marginBottom: '2px' }}>Nuevo Fogón Dorado E.I.R.L.</div>
+              <div className="text-center font-bold" style={{ fontSize: '14px', marginBottom: '2px' }}>El Fogón Dorado</div>
               <div className="text-center text-[10px] leading-tight mb-2">
-                Av. Hoyos Rubio Nro. 338, Pueblo Nuevo, Cajamarca<br />
-                R.U.C. N° 20496009259
+                Jr. Amalia Puga 821, Cajamarca<br />
+                R.U.C. N° 10710311191
               </div>
               
               <div className="text-center font-bold mb-1" style={{ fontSize: '11px' }}>{

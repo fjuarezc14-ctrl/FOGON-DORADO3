@@ -131,7 +131,7 @@ export default function ReportesPage() {
     const correlativoStr = String(v.id % 10000).padStart(4, '0');
     const totalLetras = numeroALetras(v.total);
     const hashResumen = "gSbTDa" + Math.random().toString(36).substring(2, 8).toUpperCase() + "iIZDyirfA6TBPKJnEI=";
-    const rucEmpresa = "R.U.C. N° 20496009259";
+    const rucEmpresa = "R.U.C. N° 10710311191";
     const qrData = `${rucEmpresa}|03|${serie}|${correlativoStr}|${v.igv.toFixed(2)}|${v.total.toFixed(2)}|${v.fecha || new Date(v.createdAt).toLocaleDateString('es-PE')}|${v.tipoComprobante === 'Factura'?'6':'1'}|${v.numDocumento || '00000000'}`;
     const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=130x130&data=${encodeURIComponent(qrData)}`;
 
@@ -1049,10 +1049,10 @@ export default function ReportesPage() {
             </div>
             
             <div id="comprobante-sunat-ticket-print" className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-white text-slate-900 font-mono text-xs leading-relaxed">
-              <div className="text-center font-bold" style={{ fontSize: '14px', marginBottom: '2px' }}>Nuevo Fogón Dorado E.I.R.L.</div>
+              <div className="text-center font-bold" style={{ fontSize: '14px', marginBottom: '2px' }}>El Fogón Dorado</div>
               <div className="text-center text-[10px] leading-tight mb-2">
-                Av. Hoyos Rubio Nro. 338, Pueblo Nuevo, Cajamarca<br />
-                R.U.C. N° 20496009259
+                Jr. Amalia Puga 821, Cajamarca<br />
+                R.U.C. N° 10710311191
               </div>
               
               <div className="text-center font-bold mb-1" style={{ fontSize: '11px' }}>{

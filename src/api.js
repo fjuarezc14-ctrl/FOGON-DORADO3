@@ -138,6 +138,7 @@ export const api = {
 
   // Consulta DNI/RUC segura
   consultarCliente: (doc) => fetch(`${API_BASE}/api/clientes/consulta/${doc}`).then(r => r.json()),
+  getEmpresa: () => fetch(`${API_BASE}/api/empresa`).then(r => r.json()),
 
   // SUNAT / apisunat.pe — Diagnóstico y reintentos manuales
   getNubefactPendientes: () => fetch(`${API_BASE}/api/sunat/pendientes`).then(r => r.json()),
