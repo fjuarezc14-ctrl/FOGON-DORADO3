@@ -306,7 +306,7 @@ export default function CartaPage({ currentUser }) {
               </button>
               {ofertaTab ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
             </div>
-          </button>
+          </div>
 
           {ofertaTab && (
             <div className="px-4 pb-4 md:px-5 md:pb-5 border-t border-amber-200/60">
