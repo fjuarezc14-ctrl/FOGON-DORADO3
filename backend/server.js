@@ -163,29 +163,32 @@ const MIX_PRODUCTS_DECOMPOSITION = {
 function parseSelectionsFromNotes(notas) {
   const selections = {};
   if (!notas) return selections;
+
+  const addKV = (k, v) => {
+    if (!k || !v) return;
+    const cleanK = k.trim();
+    const cleanV = v.trim();
+    selections[cleanK] = cleanV;
+    const normK = cleanK.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    selections[normK] = cleanV;
+  };
+
   const matches = notas.match(/\[([^\]:]+):\s*([^\]]+)\]/g);
   if (matches) {
     matches.forEach(m => {
       const parts = m.slice(1, -1).split(':');
       if (parts.length >= 2) {
-        const key = parts[0].trim();
-        const val = parts[1].trim();
-        selections[key] = val;
+        addKV(parts[0], parts[1]);
       }
     });
   }
   
-  // Parse dot-separated notes: Guarnición: Papas Fritas · Bebida: Sangría 1 Litro
   const partsDot = notas.split('·');
   partsDot.forEach(p => {
     const clean = p.replace(/[\[\]]/g, '').trim();
     if (clean.includes(':')) {
       const idx = clean.indexOf(':');
-      const k = clean.substring(0, idx).trim();
-      const v = clean.substring(idx + 1).trim();
-      if (k && v) {
-        selections[k] = v;
-      }
+      addKV(clean.substring(0, idx), clean.substring(idx + 1));
     }
   });
 
@@ -204,7 +207,14 @@ async function expandPedidoItemsForDb(itemsList) {
     
     if (decomp) {
       const parsedNotes = parseSelectionsFromNotes(i.notas);
-      const acompanamiento = parsedNotes["Acompañamiento"] || parsedNotes["Elige el Acompañamiento"] || parsedNotes["Elige la Guarnición"] || parsedNotes["guarnicion"] || parsedNotes["Guarnición"] || "Sin Acompañamiento";
+      const acompanamiento = 
+        parsedNotes["guarnicion"] || 
+        parsedNotes["acompanamiento"] || 
+        parsedNotes["Guarnición"] || 
+        parsedNotes["Acompañamiento"] || 
+        parsedNotes["guarnicion_menu"] || 
+        parsedNotes["Elige el Acompañamiento"] || 
+        "Sin Acompañamiento";
       
       const detailedGrillNotesArray = [
         `🥔 ACOMPAÑAMIENTO: ${acompanamiento}`
