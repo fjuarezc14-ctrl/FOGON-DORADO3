@@ -443,12 +443,20 @@ export default function SalonPage({ currentUser }) {
       return baseSteps;
     }
     
-    // 4. Parrilladas y Piqueos Mix con Opciones de Bebidas
-    const prodId = parseInt(prod.id);
-    const isParrillaPersonal = prodId === 48 || prodId === 52;
-    const isParrilla2P = prodId === 49 || prodId === 53;
-    const isParrilla3P = prodId === 50 || prodId === 54;
-    const isParrillaFina = prodId === 51 || prodId === 55 || prodId === 56;
+    // 4. Parrilladas y Piqueos Mix con Opciones de Bebidas (Búsqueda por Nombre del Plato)
+    const normName = (prod && prod.nombre || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+
+    // 4.1. Personal: Piqueo Personal (1 Persona), Parrillada/Parrilla Mixta Personal
+    const isParrillaPersonal = normName.includes("piqueo personal") || normName.includes("parrillada mixta personal") || normName.includes("parrilla mixta personal");
+
+    // 4.2. 2 Personas: Piqueo 2 Personas, Parrillada/Parrilla Mixta 2 Personas
+    const isParrilla2P = normName.includes("piqueo 2 personas") || normName.includes("piqueo 2p") || normName.includes("parrillada mixta 2 personas") || normName.includes("parrilla mixta 2 personas") || normName.includes("parrillada mixta 2p") || normName.includes("parrilla mixta 2p");
+
+    // 4.3. 3 Personas / Piqueo Familiar: Parrillada/Parrilla Mixta 3 Personas, Piqueo Familiar
+    const isParrilla3P = normName.includes("parrillada mixta 3 personas") || normName.includes("parrilla mixta 3 personas") || normName.includes("parrillada mixta 3p") || normName.includes("parrilla mixta 3p") || normName.includes("piqueo familiar");
+
+    // 4.4. Grande / Fogón Dorado: Piqueo Fogón Dorado, Parrillada/Parrilla Fina Familiar, Parrillada/Parrilla Fogón Dorado
+    const isParrillaFina = normName.includes("piqueo fogon dorado") || normName.includes("parrillada fina familiar") || normName.includes("parrilla fina familiar") || normName.includes("parrillada fogon dorado") || normName.includes("parrilla fogon dorado");
 
     if (isParrillaPersonal) {
       return [
@@ -468,9 +476,9 @@ export default function SalonPage({ currentUser }) {
           name: "Elige la Bebida",
           key: "bebida_personal",
           options: [
-            { label: "Copa de Vino Tabernero", value: "Vino Tabernero (Copa)" },
-            { label: "Vaso de Chicha Morada", value: "Chicha Morada - Vaso" },
-            { label: "Gaseosa Chiki", value: "Gaseosa Mediana" }
+            { label: "Copa de Vino Tabernero", value: "Copa de Vino Tabernero" },
+            { label: "Vaso de Chicha Morada", value: "Vaso de Chicha Morada" },
+            { label: "Gaseosa Chiki", value: "Gaseosa Chiki" }
           ]
         }
       ];
@@ -494,27 +502,18 @@ export default function SalonPage({ currentUser }) {
           name: "Elige Bebida 1 (Medio Litro)",
           key: "bebida_1",
           options: [
-            { label: "Sangría 1/2 Litro", value: "Sangría Española o Hawaiana 1/2 Lt" },
-            { label: "Gaseosa 1/2 Litro", value: "Gaseosa 1/2 Lt" },
-            { label: "Chicha Morada 1/2 Litro", value: "Chicha Morada - 1/2 Lt" }
+            { label: "Sangría 1/2 Litro", value: "Sangría 1/2 Litro" },
+            { label: "Gaseosa 1/2 Litro", value: "Gaseosa 1/2 Litro" },
+            { label: "Chicha Morada 1/2 Litro", value: "Chicha Morada 1/2 Litro" }
           ]
         },
         {
           name: "Elige Bebida 2 (Medio Litro)",
           key: "bebida_2",
           options: [
-            { label: "Sangría 1/2 Litro", value: "Sangría Española o Hawaiana 1/2 Lt" },
-            { label: "Gaseosa 1/2 Litro", value: "Gaseosa 1/2 Lt" },
-            { label: "Chicha Morada 1/2 Litro", value: "Chicha Morada - 1/2 Lt" }
-          ]
-        },
-        {
-          name: "Bebida Adicional (Opcional - Un Litro)",
-          key: "bebida_adicional",
-          options: [
-            { label: "Gaseosa 1 Litro", value: "Gaseosa 1 Lt" },
-            { label: "Chicha Morada 1 Litro", value: "Chicha Morada - 1 Lt" },
-            { label: "Omitir (Sin Bebida Adicional)", value: "Sin Bebida Adicional" }
+            { label: "Sangría 1/2 Litro", value: "Sangría 1/2 Litro" },
+            { label: "Gaseosa 1/2 Litro", value: "Gaseosa 1/2 Litro" },
+            { label: "Chicha Morada 1/2 Litro", value: "Chicha Morada 1/2 Litro" }
           ]
         }
       ];
@@ -538,10 +537,10 @@ export default function SalonPage({ currentUser }) {
           name: "Elige la Bebida",
           key: "bebida_familia",
           options: [
-            { label: "Vino Tabernero 750 ML", value: "Vino Tabernero (Botella)" },
-            { label: "Sangría 1 Litro", value: "Sangría Española o Hawaiana 1 Lt" },
-            { label: "Gaseosa 1 Litro", value: "Gaseosa 1 Lt" },
-            { label: "Chicha Morada 1 Litro", value: "Chicha Morada - 1 Lt" }
+            { label: "Vino Tabernero 750 ml", value: "Vino Tabernero 750 ml" },
+            { label: "Sangría 1 Litro", value: "Sangría 1 Litro" },
+            { label: "Gaseosa 1 Litro", value: "Gaseosa 1 Litro" },
+            { label: "Chicha Morada 1 Litro", value: "Chicha Morada 1 Litro" }
           ]
         }
       ];
@@ -565,11 +564,11 @@ export default function SalonPage({ currentUser }) {
           name: "Elige la Bebida",
           key: "bebida_familia",
           options: [
-            { label: "Vino Tabernero 750 ML", value: "Vino Tabernero (Botella)" },
-            { label: "Sangría 1 Litro", value: "Sangría Española o Hawaiana 1 Lt" },
-            { label: "Gaseosa 1.5 Litros", value: "Gaseosa 1 1/2 Lt" },
-            { label: "Chicha Morada 1.5 Litros", value: "Chicha Morada - 1 1/2 Lt" },
-            { label: "Gaseosa 3 Litros", value: "Gaseosa 3 Lt" }
+            { label: "Vino Tabernero 750 ml", value: "Vino Tabernero 750 ml" },
+            { label: "Sangría 1 Litro", value: "Sangría 1 Litro" },
+            { label: "Gaseosa 1.5 Litros", value: "Gaseosa 1.5 Litros" },
+            { label: "Chicha Morada 1.5 Litros", value: "Chicha Morada 1.5 Litros" },
+            { label: "Gaseosa 3 Litros", value: "Gaseosa 3 Litros" }
           ]
         }
       ];

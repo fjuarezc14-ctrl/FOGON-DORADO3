@@ -33,18 +33,20 @@ const BARRA_CATEGORIAS = [
 // CONFIGURACIÓN DE PARRILLADAS Y PIQUEOS MIX (COMBO DECOMPOSITION)
 // ============================================================
 const MIX_PRODUCTS_DECOMPOSITION = {
-  // Piqueo Personal (1 persona) -> ID 48
-  48: {
+  // 1. Piqueo Personal (1 persona)
+  "piqueo_personal": {
     billingItemName: "Piqueo Personal (1 persona)",
+    altNames: ["Piqueo Personal (1 persona)", "Piqueo Personal", "Piqueo Personal 1 Persona"],
     components: [
       { nombre: "Pancita, Mollejas, Ubres (4 u c/u)" }
     ],
     reportingItems: [],
     hasDrinkSelections: true
   },
-  // Piqueo 2 Personas -> ID 49
-  49: {
+  // 2. Piqueo 2 Personas
+  "piqueo_2p": {
     billingItemName: "Piqueo 2 Personas",
+    altNames: ["Piqueo 2 Personas", "Piqueo 2P"],
     components: [
       { nombre: "Panceta, Mollejas, Ubre, Trompas (4 u c/u)" },
       { nombre: "Anticuchos y Brochetas (2 u c/u)" }
@@ -55,9 +57,10 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // Piqueo Familiar -> ID 50
-  50: {
+  // 3. Piqueo Familiar
+  "piqueo_familiar": {
     billingItemName: "Piqueo Familiar",
+    altNames: ["Piqueo Familiar"],
     components: [
       { nombre: "Panceta, Mollejas, Ubre, Trompas (8 u c/u)" },
       { nombre: "Chorizos, Anticuchos, Brochetas (2 u c/u)" }
@@ -67,9 +70,10 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // Piqueo Fogón Dorado -> ID 51
-  51: {
+  // 4. Piqueo Fogón Dorado
+  "piqueo_fogon_dorado": {
     billingItemName: "Piqueo Fogón Dorado",
+    altNames: ["Piqueo Fogón Dorado", "Piqueo Fogon Dorado"],
     components: [
       { nombre: "Panceta, Molleja, Ubre, Trompa (12 u c/u)" },
       { nombre: "Chorizo, Anticucho, Brocheta, Lengua (4 u c/u)" }
@@ -80,9 +84,10 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // Parrillada Mixta Personal -> ID 52
-  52: {
+  // 5. Parrillada Mixta Personal
+  "parrillada_mixta_personal": {
     billingItemName: "Parrillada Mixta Personal",
+    altNames: ["Parrillada Mixta Personal", "Parrilla Mixta Personal"],
     components: [
       { nombre: "Res y Pollo (150g c/u)" },
       { nombre: "Chorizo (1 u)" }
@@ -93,9 +98,10 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // Parrillada Mixta 2 Personas -> ID 53
-  53: {
+  // 6. Parrillada Mixta 2 Personas
+  "parrillada_mixta_2p": {
     billingItemName: "Parrillada Mixta 2 Personas",
+    altNames: ["Parrillada Mixta 2 Personas", "Parrilla Mixta 2 Personas", "Parrillada Mixta 2P", "Parrilla Mixta 2P"],
     components: [
       { nombre: "Res, Pollo y Cerdo (150g c/u)" },
       { nombre: "Mollejas y Ubre (4 u c/u)" },
@@ -106,9 +112,10 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // Parrillada Mixta 3 Personas -> ID 54
-  54: {
+  // 7. Parrillada Mixta 3 Personas
+  "parrillada_mixta_3p": {
     billingItemName: "Parrillada Mixta 3 Personas",
+    altNames: ["Parrillada Mixta 3 Personas", "Parrilla Mixta 3 Personas", "Parrillada Mixta 3P", "Parrilla Mixta 3P"],
     components: [
       { nombre: "Res, Pollo y Cerdo (150g c/u)" },
       { nombre: "Chorizos (3 u)" }
@@ -120,9 +127,10 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // Parrillada Fina Familiar (5 personas) -> ID 55
-  55: {
+  // 8. Parrillada Fina Familiar (5 personas)
+  "parrillada_fina_familiar": {
     billingItemName: "Parrillada Fina Familiar (5 personas)",
+    altNames: ["Parrillada Fina Familiar (5 personas)", "Parrillada Fina Familiar", "Parrilla Fina Familiar"],
     components: [
       { nombre: "Res, Pollo y Cerdo (300g c/u)" },
       { nombre: "Chorizos (4 u)" }
@@ -133,9 +141,10 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // Parrillada Fogón Dorado (8-10 personas) -> ID 56
-  56: {
+  // 9. Parrillada Fogón Dorado (8-10 personas)
+  "parrillada_fogon_dorado": {
     billingItemName: "Parrillada Fogón Dorado (8-10 personas)",
+    altNames: ["Parrillada Fogón Dorado (8-10 personas)", "Parrillada Fogón Dorado", "Parrilla Fogón Dorado", "Parrillada Fogon Dorado"],
     components: [
       { nombre: "Lomo Fino y Cerdo (300g c/u)" },
       { nombre: "Filete Pollo (300g)" },
@@ -165,6 +174,21 @@ function parseSelectionsFromNotes(notas) {
       }
     });
   }
+  
+  // Parse dot-separated notes: Guarnición: Papas Fritas · Bebida: Sangría 1 Litro
+  const partsDot = notas.split('·');
+  partsDot.forEach(p => {
+    const clean = p.replace(/[\[\]]/g, '').trim();
+    if (clean.includes(':')) {
+      const idx = clean.indexOf(':');
+      const k = clean.substring(0, idx).trim();
+      const v = clean.substring(idx + 1).trim();
+      if (k && v) {
+        selections[k] = v;
+      }
+    }
+  });
+
   return selections;
 }
 
@@ -180,7 +204,7 @@ async function expandPedidoItemsForDb(itemsList) {
     
     if (decomp) {
       const parsedNotes = parseSelectionsFromNotes(i.notas);
-      const acompanamiento = parsedNotes["Acompañamiento"] || parsedNotes["Elige el Acompañamiento"] || parsedNotes["Elige la Guarnición"] || parsedNotes["guarnicion"] || "Sin Acompañamiento";
+      const acompanamiento = parsedNotes["Acompañamiento"] || parsedNotes["Elige el Acompañamiento"] || parsedNotes["Elige la Guarnición"] || parsedNotes["guarnicion"] || parsedNotes["Guarnición"] || "Sin Acompañamiento";
       
       const detailedGrillNotesArray = [
         `🥔 ACOMPAÑAMIENTO: ${acompanamiento}`
@@ -225,7 +249,7 @@ async function expandPedidoItemsForDb(itemsList) {
       if (decomp.hasDrinkSelections) {
         const selectedDrinkNames = [];
         
-        // Buscar todas las posibles llaves de bebidas en parsedNotes (tanto nuevos como de legado)
+        // Buscar todas las posibles llaves de bebidas en parsedNotes
         const drinkKeys = [
           "Elige Bebida 1 (Medio Litro)",
           "Elige Bebida 2 (Medio Litro)",
@@ -233,33 +257,30 @@ async function expandPedidoItemsForDb(itemsList) {
           "Elige la Bebida",
           "Bebida",
           "Bebida 1",
-          "Bebida 2"
+          "Bebida 2",
+          "bebida_personal",
+          "bebida_familia"
         ];
         
         for (const key of drinkKeys) {
           const val = parsedNotes[key];
-          if (val) {
+          if (val && !val.toLowerCase().includes("sin bebida") && !val.toLowerCase().includes("omitir")) {
             selectedDrinkNames.push(val);
           }
         }
         
         // Agrupar si hay duplicados de bebidas de medio litro
         let groupedDrinks = [...selectedDrinkNames];
-        if (prodId === 49 || prodId === 53) {
+        const is2P = prodNombre.includes("2 personas") || prodNombre.includes("2p");
+        if (is2P) {
           // Si hay 2 bebidas del mismo tipo de medio litro, agruparlas en 1 litro
           if (selectedDrinkNames.length === 2 && selectedDrinkNames[0] === selectedDrinkNames[1]) {
             const drinkName = selectedDrinkNames[0];
             const name1Lt = drinkName
-              .replace("1/2 Lt", "1 Lt")
               .replace("1/2 Litro", "1 Litro")
+              .replace("1/2 Lt", "1 Lt")
               .replace("1/2 lt", "1 lt");
             groupedDrinks = [name1Lt];
-          }
-        }
-        
-        if (groupedDrinks.length === 0) {
-          if (prodId === 50 || prodId === 51) {
-            groupedDrinks.push("Vino Tabernero (Botella)");
           }
         }
         
@@ -267,21 +288,21 @@ async function expandPedidoItemsForDb(itemsList) {
           let lookupName = drinkName;
           let displayName = drinkName;
           
-          if (drinkName === "Gaseosa Chiki") {
-            lookupName = "Gaseosa Mediana";
+          if (drinkName.includes("Chiki")) {
+            lookupName = "Chiki";
             displayName = "Gaseosa Chiki";
-          } else if (drinkName === "Vino Tabernero (Copa)") {
-            lookupName = "Vino Tabernero";
-            displayName = "Vino Tabernero (Copa)";
-          } else if (drinkName === "Vaso de Chicha Morada" || drinkName === "Chicha Morada - Vaso") {
-            lookupName = "Chicha Morada - Vaso";
-            displayName = "Chicha Morada - Vaso";
-          } else if (drinkName === "Sangría 1/2 Litro" || drinkName === "Sangria 1/2 Litro") {
-            lookupName = "Sangría Española o Hawaiana 1/2 Lt";
-            displayName = "Sangría Española o Hawaiana 1/2 Lt";
-          } else if (drinkName === "Sangría 1 Litro" || drinkName === "Sangria 1 Litro") {
-            lookupName = "Sangría Española o Hawaiana 1 Lt";
-            displayName = "Sangría Española o Hawaiana 1 Lt";
+          } else if (drinkName.includes("Copa") || drinkName.includes("Tabernero")) {
+            lookupName = "Tabernero";
+            displayName = drinkName;
+          } else if (drinkName.includes("Chicha")) {
+            lookupName = "Chicha";
+            displayName = drinkName;
+          } else if (drinkName.includes("Sangría") || drinkName.includes("Sangria")) {
+            lookupName = "Sangría";
+            displayName = drinkName;
+          } else if (drinkName.includes("Gaseosa")) {
+            lookupName = "Gaseosa";
+            displayName = drinkName;
           }
           
           const drinkProd = await prisma.producto.findFirst({
