@@ -3627,16 +3627,17 @@ async function enviarAApisunat(venta, itemsRaw) {
 
   // Formatear items para apisunat.pe
   const formattedItems = items.map((item) => {
-    const totalItem = item.precio * item.cantidad;
+    const cant = item.cant || item.cantidad || 1;
+    const totalItem = item.precio * cant;
     const subtotalItem = totalItem / 1.105;
     
     return {
       unidad_de_medida: "NIU",
-      descripcion: item.nombre,
-      cantidad: String(item.cantidad),
-      valor_unitario: (subtotalItem / item.cantidad).toFixed(6), // Recomienda 6 decimales
+      descripcion: item.nombre || item.producto?.nombre || 'Producto',
+      cantidad: String(cant),
+      valor_unitario: (subtotalItem / cant).toFixed(6),
       porcentaje_igv: "10.5",
-      codigo_tipo_afectacion_igv: "10", // Gravado - Operación Onerosa
+      codigo_tipo_afectacion_igv: "10",
       nombre_tributo: "IGV"
     };
   });
