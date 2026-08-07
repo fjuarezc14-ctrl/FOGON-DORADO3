@@ -172,7 +172,11 @@ async function expandPedidoItemsForDb(itemsList) {
   const expandedList = [];
   for (const i of itemsList) {
     const prodId = parseInt(i.productoId || i.id);
-    const decomp = MIX_PRODUCTS_DECOMPOSITION[prodId];
+    const prodNombre = (i.nombre || '').trim().toLowerCase();
+    const decomp = Object.values(MIX_PRODUCTS_DECOMPOSITION).find(d => 
+      d.billingItemName.toLowerCase() === prodNombre || 
+      (d.altNames && d.altNames.some(a => a.toLowerCase() === prodNombre))
+    );
     
     if (decomp) {
       const parsedNotes = parseSelectionsFromNotes(i.notas);
