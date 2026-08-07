@@ -29,6 +29,31 @@ const BARRA_CATEGORIAS = [
   'Postres',
 ];
 
+function isBarraItem(item) {
+  if (!item) return false;
+  const cat = item.producto?.categoria || item.categoria || '';
+  if (BARRA_CATEGORIAS.includes(cat)) return true;
+  
+  const normName = (item.nombre || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  return (
+    normName.includes("sangria") ||
+    normName.includes("vino") ||
+    normName.includes("chicha") ||
+    normName.includes("gaseosa") ||
+    normName.includes("chiki") ||
+    normName.includes("bebida") ||
+    normName.includes("cerveza") ||
+    normName.includes("coctel") ||
+    normName.includes("sour") ||
+    normName.includes("pisco") ||
+    normName.includes("mojito") ||
+    normName.includes("jugo") ||
+    normName.includes("limonada") ||
+    normName.includes("daiquiri") ||
+    normName.includes("chilcano")
+  );
+}
+
 // ============================================================
 // CONFIGURACIÓN DE PARRILLADAS Y PIQUEOS MIX (COMBO DECOMPOSITION)
 // ============================================================
@@ -295,38 +320,46 @@ async function expandPedidoItemsForDb(itemsList) {
         }
         
         for (const drinkName of groupedDrinks) {
-          let lookupName = drinkName;
-          let displayName = drinkName;
+          const norm = drinkName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+          let whereClause = null;
           
-          if (drinkName.includes("Chiki")) {
-            lookupName = "Chiki";
-            displayName = "Gaseosa Chiki";
-          } else if (drinkName.includes("Copa") || drinkName.includes("Tabernero")) {
-            lookupName = "Tabernero";
-            displayName = drinkName;
-          } else if (drinkName.includes("Chicha")) {
-            lookupName = "Chicha";
-            displayName = drinkName;
-          } else if (drinkName.includes("Sangría") || drinkName.includes("Sangria")) {
-            lookupName = "Sangría";
-            displayName = drinkName;
-          } else if (drinkName.includes("Gaseosa")) {
-            lookupName = "Gaseosa";
-            displayName = drinkName;
+          if (norm.includes("chiki")) {
+            whereClause = { nombre: { contains: "Gaseosa Mediana", mode: 'insensitive' } };
+          } else if (norm.includes("copa") || norm.includes("tabernero")) {
+            whereClause = { nombre: { contains: "Vino Tabernero", mode: 'insensitive' } };
+          } else if (norm.includes("chicha")) {
+            if (norm.includes("vaso")) whereClause = { nombre: { contains: "Chicha Morada - Vaso", mode: 'insensitive' } };
+            else if (norm.includes("1.5") || norm.includes("1 1/2")) whereClause = { nombre: { contains: "Chicha Morada - 1 1/2", mode: 'insensitive' } };
+            else if (norm.includes("1/2") || norm.includes("medio")) whereClause = { nombre: { contains: "Chicha Morada - 1/2", mode: 'insensitive' } };
+            else whereClause = { nombre: { contains: "Chicha Morada - 1 Lt", mode: 'insensitive' } };
+          } else if (norm.includes("sangria")) {
+            if (norm.includes("1/2") || norm.includes("medio")) whereClause = { nombre: { contains: "Sangría Española o Hawaiana 1/2", mode: 'insensitive' } };
+            else whereClause = { nombre: { contains: "Sangría Española o Hawaiana 1", mode: 'insensitive' } };
+          } else if (norm.includes("gaseosa")) {
+            if (norm.includes("3")) whereClause = { nombre: { contains: "Gaseosa 3 Lt", mode: 'insensitive' } };
+            else if (norm.includes("1.5") || norm.includes("1 1/2")) whereClause = { nombre: { contains: "Gaseosa 1 1/2 Lt", mode: 'insensitive' } };
+            else if (norm.includes("1/2") || norm.includes("medio")) whereClause = { nombre: { contains: "Gaseosa 1/2 Lt", mode: 'insensitive' } };
+            else whereClause = { nombre: { contains: "Gaseosa 1 Lt", mode: 'insensitive' } };
+          }
+
+          let drinkProd = null;
+          if (whereClause) {
+            drinkProd = await prisma.producto.findFirst({ where: whereClause });
+          }
+          if (!drinkProd) {
+            drinkProd = await prisma.producto.findFirst({
+              where: { categoria: { in: BARRA_CATEGORIAS } }
+            });
           }
           
-          const drinkProd = await prisma.producto.findFirst({
-            where: { nombre: { contains: lookupName } }
-          });
-          
           expandedList.push({
-            productoId: drinkProd ? drinkProd.id : 213,
-            nombre: drinkProd ? drinkProd.nombre : displayName,
+            productoId: drinkProd ? drinkProd.id : 139,
+            nombre: drinkName,
             precio: 0,
             cantidad: parseInt(i.cant || i.cantidad),
             historial: false, // Go to Barra!
             entregado: false,
-            notas: null,
+            notas: `(Incluido en ${i.nombre})`,
           });
         }
       }
@@ -878,7 +911,7 @@ app.get('/api/pedidos/cocina', async (req, res) => {
       }),
       // Filtrar bebidas: cocina solo ve lo que prepara
       items: p.items
-        .filter(i => !i.historial && !BARRA_CATEGORIAS.includes(i.producto?.categoria))
+        .filter(i => !i.historial && !isBarraItem(i))
         .map(i => ({
           id: i.id,
           nombre: i.nombre,
@@ -921,7 +954,7 @@ app.get('/api/pedidos/barra', async (req, res) => {
       }),
       // Barra solo ve items de categorías de barra que no se han despachado (historial === false)
       items: p.items
-        .filter(i => !i.historial && BARRA_CATEGORIAS.includes(i.producto?.categoria))
+        .filter(i => !i.historial && isBarraItem(i))
         .map(i => ({
           nombre: i.nombre,
           cant: i.cantidad,
