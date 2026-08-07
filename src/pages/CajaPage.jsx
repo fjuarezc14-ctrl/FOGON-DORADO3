@@ -1532,7 +1532,8 @@ export default function CajaPage({ currentUser }) {
       nameNorm.includes('1/4') || nameNorm.includes('cuarto') || 
       nameNorm.includes('1/8') || nameNorm.includes('octavo');
 
-    if (hasComboConfig || isVirtualGroup || requiereGuarnicion || isMenuCategory || isPolloEntero || isMedioPollo || (prod.requiereGuarnicion && !isCuartoOOctavo)) {
+    const targetSteps = getProductSteps(prod, {});
+    if (targetSteps && targetSteps.length > 0) {
       setSelectedProduct(prod);
       setSelections({});
       setCurrentStepIdx(0);
@@ -3484,7 +3485,7 @@ export default function CajaPage({ currentUser }) {
       {/* MODAL DE SELECCIÓN DE OPCIONES Y COMBOS (INTERACTIVO PARA DELIVERY) */}
       {optionsModalOpen && selectedProduct && (() => {
         const steps = getProductSteps(selectedProduct, selections);
-        if (steps.length === 0) return null;
+        if (!steps || steps.length === 0 || !steps[currentStepIdx]) return null;
         
         const currentStep = steps[currentStepIdx];
         const esUltimoPaso = currentStepIdx === steps.length - 1;
