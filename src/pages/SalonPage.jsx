@@ -444,6 +444,7 @@ export default function SalonPage({ currentUser }) {
     }
     
     // 4. Parrilladas y Piqueos Mix con Opciones de Bebidas (Búsqueda por Nombre del Plato)
+    const prodId = parseInt(prod ? prod.id : 0);
     const normName = (prod && prod.nombre || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 
     // 4.1. Personal: Piqueo Personal (1 Persona), Parrillada/Parrilla Mixta Personal

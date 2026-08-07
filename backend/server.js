@@ -35,10 +35,15 @@ function isBarraItem(item) {
   if (BARRA_CATEGORIAS.includes(cat)) return true;
   
   const normName = (item.nombre || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  
+  // Platos de comida (ej: Chicharrón de Pollo/Pescado/Cerdo) van SIEMPRE a Cocina
+  if (normName.includes("chicharron")) return false;
+
   return (
     normName.includes("sangria") ||
     normName.includes("vino") ||
-    normName.includes("chicha") ||
+    normName.includes("chicha morada") ||
+    (normName.includes("chicha") && !normName.includes("chicharron")) ||
     normName.includes("gaseosa") ||
     normName.includes("chiki") ||
     normName.includes("bebida") ||
