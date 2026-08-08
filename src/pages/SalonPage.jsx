@@ -1580,7 +1580,7 @@ export default function SalonPage({ currentUser }) {
               if (b1 && b2 && !b1.toLowerCase().includes('sin') && !b2.toLowerCase().includes('sin')) {
                 if (b1 === b2) {
                   // Agrupar dos de 1/2 Lt iguales en un solo litro para la Barra (ej: Gaseosa 1/2 Lt + Gaseosa 1/2 Lt => Gaseosa 1 Lt)
-                  const cleanName = b1.replace(" 1/2 Lt", " 1 Lt").replace(" - 1/2 Lt", " - 1 Lt");
+                  const cleanName = b1.replace(" 1/2 Litro", " 1 Litro").replace(" 1/2 Lt", " 1 Lt").replace(" - 1/2 Lt", " - 1 Lt");
                   notesArray.push(`Bebida: ${cleanName}`);
                 } else {
                   notesArray.push(`Bebida 1: ${b1}`);
@@ -1589,6 +1589,11 @@ export default function SalonPage({ currentUser }) {
               } else {
                 if (b1 && !b1.toLowerCase().includes('sin')) notesArray.push(`Bebida 1: ${b1}`);
                 if (b2 && !b2.toLowerCase().includes('sin')) notesArray.push(`Bebida 2: ${b2}`);
+              }
+
+              const cantEnsaladas = selections["cantidad_ensaladas"];
+              if (cantEnsaladas && !cantEnsaladas.toLowerCase().includes('sin ensalada')) {
+                notesArray.push(cantEnsaladas);
               }
               
               if (b_adic && b_adic !== "Sin Bebida Adicional") {

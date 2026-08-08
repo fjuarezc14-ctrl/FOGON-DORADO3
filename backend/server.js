@@ -249,6 +249,21 @@ async function expandPedidoItemsForDb(itemsList) {
       const detailedGrillNotesArray = [
         `🥔 ACOMPAÑAMIENTO: ${acompanamiento}`
       ];
+
+      const cantidadEnsaladas = 
+        parsedNotes["cantidad_ensaladas"] || 
+        parsedNotes["cantidad ensaladas"] || 
+        parsedNotes["ensaladas"] ||
+        parsedNotes["Cantidad de Ensaladas"];
+
+      if (cantidadEnsaladas && !cantidadEnsaladas.toLowerCase().includes("sin ensalada")) {
+        detailedGrillNotesArray.push(`🥗 ENSALADAS: ${cantidadEnsaladas}`);
+      } else if (i.notas) {
+        const ensaladaMatch = i.notas.match(/(\d+\s*Ensaladas?)/i);
+        if (ensaladaMatch) {
+          detailedGrillNotesArray.push(`🥗 ENSALADAS: ${ensaladaMatch[1]}`);
+        }
+      }
       
       if (i.notas && i.notas.includes("(Nota:")) {
         const customNoteMatch = i.notas.match(/\(Nota:\s*([^\)]+)\)/);
@@ -1007,9 +1022,11 @@ app.get('/api/pedidos/ensaladas', async (req, res) => {
       }),
       items: p.items
         .filter(i => {
-          const esBarra = BARRA_CATEGORIAS.includes(i.producto?.categoria);
+          const esBarra = isBarraItem(i);
           const llevaGuarnicion = i.producto?.requiereGuarnicion || (i.producto?.categoria && categoriasGuarnicion.includes(i.producto.categoria));
-          return llevaGuarnicion && !esBarra;
+          // Excluir componentes de descomposición de parrilla de precio 0 (para mostrar solo la parrillada principal y su conteo de ensaladas)
+          const esComponenteParrilla = i.precio === 0;
+          return llevaGuarnicion && !esBarra && !esComponenteParrilla;
         })
         .map(i => ({
           nombre: i.nombre,
