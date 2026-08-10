@@ -3049,23 +3049,44 @@ app.get('/api/ventas/resumen', async (req, res) => {
     const ventasReales = ventas.filter(v =>
       v.metodoPago !== 'Cortesía' && v.metodoPago !== 'Consumo' && v.metodoPago !== 'PedidosYa'
     );
-    const ingresosCaja = ventasReales.reduce((s, v) => s + (v.montoEfectivo || 0) + (v.montoTarjeta || 0) + (v.montoYape || 0), 0);
+
+    let sumEfectivo = 0;
+    let sumTarjeta = 0;
+    let sumYape = 0;
+
+    ventasReales.forEach(v => {
+      let efec = v.montoEfectivo || 0;
+      let tarj = v.montoTarjeta || 0;
+      let yape = v.montoYape || 0;
+
+      const tieneMontoExplicit = (efec > 0 || tarj > 0 || yape > 0);
+      if (!tieneMontoExplicit) {
+        if (v.metodoPago === 'Efectivo') efec = v.total || 0;
+        else if (v.metodoPago === 'Tarjeta') tarj = v.total || 0;
+        else if (v.metodoPago === 'Yape' || v.metodoPago === 'Plin') yape = v.total || 0;
+      }
+
+      sumEfectivo += efec;
+      sumTarjeta += tarj;
+      sumYape += yape;
+    });
+
+    const ingresosCaja = sumEfectivo + sumTarjeta + sumYape;
     const ingresosPedidosYa = ventas
       .filter(v => v.metodoPago === 'PedidosYa')
       .reduce((s, v) => s + v.total, 0);
     const totalConsumos = ventas
       .filter(v => v.metodoPago === 'Consumo')
       .reduce((s, v) => s + (v.descuentoAplicado || v.total), 0);
-    // Solo ventas marcadas explícitamente como Cortesía
     const totalCortesias = ventas
       .filter(v => v.metodoPago === 'Cortesía')
       .reduce((s, v) => s + (v.descuentoAplicado || v.total), 0);
 
     // Desglose por método (de todos los ingresos reales de caja distribuidos)
     const porMetodoPago = {
-      Efectivo: ventasReales.reduce((s, v) => s + (v.montoEfectivo || 0), 0),
-      Tarjeta:  ventasReales.reduce((s, v) => s + (v.montoTarjeta  || 0), 0),
-      Yape:     ventasReales.reduce((s, v) => s + (v.montoYape     || 0), 0),
+      Efectivo: sumEfectivo,
+      Tarjeta:  sumTarjeta,
+      Yape:     sumYape,
       PedidosYa: ingresosPedidosYa,
       Consumo: totalConsumos,
       Cortesía: totalCortesias,
@@ -3369,24 +3390,33 @@ app.get('/api/reportes/cancelaciones', async (req, res) => {
     }
 
     const pedidos = await prisma.pedido.findMany({
-      where: { estado: 'Cancelado', canceladoEn: filtroFecha },
+      where: {
+        estado: 'Cancelado',
+        OR: [
+          { canceladoEn: filtroFecha },
+          { createdAt: filtroFecha }
+        ]
+      },
       include: { items: true, mesa: true },
-      orderBy: { canceladoEn: 'desc' },
+      orderBy: { id: 'desc' },
     });
 
-    const formateados = pedidos.map(p => ({
-      id: p.id,
-      hora: p.canceladoEn?.toLocaleTimeString('es-PE', {
-        hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima',
-      }),
-      fecha: p.canceladoEn?.toLocaleDateString('es-PE'),
-      mesa: p.mesa?.numero || null,
-      codigoPedidosYa: p.codigoPedidosYa,
-      canceladoPor: p.canceladoPor,
-      motivoCancela: p.motivoCancela,
-      total: p.total,
-      resumenItems: p.items.map(i => `${i.cantidad}x ${i.nombre}`).join(', '),
-    }));
+    const formateados = pedidos.map(p => {
+      const fechaObj = p.canceladoEn || p.createdAt;
+      return {
+        id: p.id,
+        hora: fechaObj ? new Date(fechaObj).toLocaleTimeString('es-PE', {
+          hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima',
+        }) : '',
+        fecha: fechaObj ? new Date(fechaObj).toLocaleDateString('es-PE') : '',
+        mesa: p.mesa?.numero || null,
+        codigoPedidosYa: p.codigoPedidosYa,
+        canceladoPor: p.canceladoPor || 'Sistema / Caja',
+        motivoCancela: p.motivoCancela || 'Sin motivo especificado',
+        total: p.total,
+        resumenItems: p.items ? p.items.map(i => `${i.cantidad}x ${i.nombre}`).join(', ') : '',
+      };
+    });
 
     res.json(formateados);
   } catch (err) {

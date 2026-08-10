@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Download, TrendingUp, TrendingDown, DollarSign, XCircle, Users, Truck, Calendar, Search, Receipt, Printer, X, Ban } from 'lucide-react';
+import { Download, TrendingUp, TrendingDown, DollarSign, XCircle, Users, Truck, Calendar, Search, Receipt, Printer, X, Ban, Wallet, Banknote, CreditCard } from 'lucide-react';
 import { api } from '../api';
 
 
@@ -608,20 +608,30 @@ export default function ReportesPage() {
                               );
                             }
                             let method = v.metodoPago;
+                            let label = method;
                             if (method === 'PedidosYa' && v.codigoPedidosYa) {
                               if (v.codigoPedidosYa.startsWith('DELIVERY -') || v.codigoPedidosYa.startsWith('LLEVAR -')) {
                                 method = 'Efectivo';
+                                label = 'Efectivo';
                               }
+                            }
+                            if (method === 'Mixto') {
+                              const partes = [];
+                              if (v.montoEfectivo > 0) partes.push(`Efec S/${v.montoEfectivo.toFixed(2)}`);
+                              if (v.montoTarjeta > 0) partes.push(`Tarj S/${v.montoTarjeta.toFixed(2)}`);
+                              if (v.montoYape > 0) partes.push(`Yape S/${v.montoYape.toFixed(2)}`);
+                              label = partes.length > 0 ? `MIXTO (${partes.join(' + ')})` : 'MIXTO';
                             }
                             return (
                               <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wide border ${
                                 method === 'Efectivo' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
                                 method === 'Tarjeta' ? 'bg-blue-50 border-blue-200 text-blue-700' :
                                 method === 'Yape' ? 'bg-purple-50 border-purple-200 text-purple-700' :
+                                method === 'Mixto' ? 'bg-amber-50 border-amber-200 text-amber-800' :
                                 method === 'Cortesía' ? 'bg-amber-50 border-amber-200 text-amber-700' :
                                 method === 'Consumo' ? 'bg-violet-50 border-violet-200 text-violet-700' :
                                 'bg-indigo-50 border-indigo-200 text-indigo-700'
-                              }`}>{method}</span>
+                              }`}>{label}</span>
                             );
                           })()}
                         </td>
