@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Download, TrendingUp, TrendingDown, DollarSign, XCircle, Users, Truck, Calendar, Search, Receipt, Printer, X, Ban, Wallet, Banknote, CreditCard } from 'lucide-react';
+import { Download, TrendingUp, TrendingDown, DollarSign, XCircle, Users, Truck, Calendar, Search, Receipt, Printer, X, Ban, Wallet, Banknote, CreditCard, Gift } from 'lucide-react';
 import { api } from '../api';
 
 
@@ -520,6 +520,126 @@ export default function ReportesPage() {
               <div className="flex justify-between text-xs text-slate-400 border-t border-slate-800 pt-4 mt-6 relative z-10">
                 <span>Periodo Auditoría</span>
                 <span className="font-bold text-amber-400 uppercase tracking-widest text-[10px]">Rango Activo</span>
+              </div>
+            </div>
+          </div>
+
+          {/* DESGLOSE DE RECAUDACIÓN EN CAJA (PERIODO SELECCIONADO) */}
+          <div className="bg-white p-5 rounded-3xl border border-slate-200/60 shadow-sm mb-8">
+            <div className="flex items-center gap-2 mb-4">
+              <Wallet className="w-4 h-4 text-emerald-600" />
+              <h2 className="font-black text-slate-700 uppercase text-xs tracking-wider">
+                Desglose de Recaudación en Caja (Periodo Seleccionado)
+              </h2>
+            </div>
+            
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+              {/* 1. EFECTIVO TOTAL */}
+              <div className="bg-slate-50 border border-slate-200/70 p-3.5 rounded-2xl flex flex-col items-center justify-center text-center">
+                <span className="text-[10px] font-black uppercase text-emerald-600 tracking-wider flex items-center gap-1">
+                  <Banknote className="w-3 h-3" /> Efectivo Total
+                </span>
+                <span className="text-lg font-black font-mono text-emerald-700 mt-1">
+                  S/ {((() => {
+                    const efec = ventas.reduce((s, v) => {
+                      if (v.estadoPedido === 'Cancelado' || v.estadoSunat === 'ANULADO') return s;
+                      if (v.metodoPago === 'Cortesía' || v.metodoPago === 'Consumo' || v.metodoPago === 'PedidosYa') return s;
+                      if (v.metodoPago === 'Mixto' || (v.montoEfectivo > 0 || v.montoTarjeta > 0 || v.montoYape > 0)) {
+                        return s + (v.montoEfectivo || 0);
+                      }
+                      return v.metodoPago === 'Efectivo' ? s + (v.total || 0) : s;
+                    }, 0);
+                    return efec;
+                  })()).toFixed(2)}
+                </span>
+              </div>
+
+              {/* 2. TARJETA / POS */}
+              <div className="bg-slate-50 border border-slate-200/70 p-3.5 rounded-2xl flex flex-col items-center justify-center text-center">
+                <span className="text-[10px] font-black uppercase text-blue-600 tracking-wider flex items-center gap-1">
+                  <CreditCard className="w-3 h-3" /> Tarjeta / POS
+                </span>
+                <span className="text-lg font-black font-mono text-blue-700 mt-1">
+                  S/ {((() => {
+                    const tarj = ventas.reduce((s, v) => {
+                      if (v.estadoPedido === 'Cancelado' || v.estadoSunat === 'ANULADO') return s;
+                      if (v.metodoPago === 'Cortesía' || v.metodoPago === 'Consumo' || v.metodoPago === 'PedidosYa') return s;
+                      if (v.metodoPago === 'Mixto' || (v.montoEfectivo > 0 || v.montoTarjeta > 0 || v.montoYape > 0)) {
+                        return s + (v.montoTarjeta || 0);
+                      }
+                      return v.metodoPago === 'Tarjeta' ? s + (v.total || 0) : s;
+                    }, 0);
+                    return tarj;
+                  })()).toFixed(2)}
+                </span>
+              </div>
+
+              {/* 3. YAPE / PLIN */}
+              <div className="bg-slate-50 border border-slate-200/70 p-3.5 rounded-2xl flex flex-col items-center justify-center text-center">
+                <span className="text-[10px] font-black uppercase text-purple-600 tracking-wider flex items-center gap-1">
+                  <Wallet className="w-3 h-3" /> Yape / Plin
+                </span>
+                <span className="text-lg font-black font-mono text-purple-700 mt-1">
+                  S/ {((() => {
+                    const yp = ventas.reduce((s, v) => {
+                      if (v.estadoPedido === 'Cancelado' || v.estadoSunat === 'ANULADO') return s;
+                      if (v.metodoPago === 'Cortesía' || v.metodoPago === 'Consumo' || v.metodoPago === 'PedidosYa') return s;
+                      if (v.metodoPago === 'Mixto' || (v.montoEfectivo > 0 || v.montoTarjeta > 0 || v.montoYape > 0)) {
+                        return s + (v.montoYape || 0);
+                      }
+                      return (v.metodoPago === 'Yape' || v.metodoPago === 'Plin') ? s + (v.total || 0) : s;
+                    }, 0);
+                    return yp;
+                  })()).toFixed(2)}
+                </span>
+              </div>
+
+              {/* 4. PEDIDOSYA */}
+              <div className="bg-slate-50 border border-slate-200/70 p-3.5 rounded-2xl flex flex-col items-center justify-center text-center">
+                <span className="text-[10px] font-black uppercase text-rose-500 tracking-wider flex items-center gap-1">
+                  <Truck className="w-3 h-3" /> PedidosYa
+                </span>
+                <span className="text-lg font-black font-mono text-rose-600 mt-1">
+                  S/ {((() => {
+                    const py = ventas.reduce((s, v) => {
+                      if (v.estadoPedido === 'Cancelado' || v.estadoSunat === 'ANULADO') return s;
+                      return v.metodoPago === 'PedidosYa' ? s + (v.total || 0) : s;
+                    }, 0);
+                    return py;
+                  })()).toFixed(2)}
+                </span>
+              </div>
+
+              {/* 5. CONSUMOS PERS. */}
+              <div className="bg-slate-50 border border-slate-200/70 p-3.5 rounded-2xl flex flex-col items-center justify-center text-center">
+                <span className="text-[10px] font-black uppercase text-indigo-600 tracking-wider flex items-center gap-1">
+                  <Users className="w-3 h-3" /> Consumos Pers.
+                </span>
+                <span className="text-lg font-black font-mono text-indigo-700 mt-1">
+                  S/ {((() => {
+                    const cons = ventas.reduce((s, v) => {
+                      if (v.estadoPedido === 'Cancelado' || v.estadoSunat === 'ANULADO') return s;
+                      return v.metodoPago === 'Consumo' ? s + (v.total || 0) : s;
+                    }, 0);
+                    return cons;
+                  })()).toFixed(2)}
+                </span>
+              </div>
+
+              {/* 6. CORTESÍAS */}
+              <div className="bg-slate-50 border border-slate-200/70 p-3.5 rounded-2xl flex flex-col items-center justify-center text-center">
+                <span className="text-[10px] font-black uppercase text-amber-600 tracking-wider flex items-center gap-1">
+                  <Gift className="w-3 h-3" /> Cortesías
+                </span>
+                <span className="text-lg font-black font-mono text-amber-600 mt-1">
+                  S/ {((() => {
+                    const cort = ventas.reduce((s, v) => {
+                      if (v.estadoPedido === 'Cancelado' || v.estadoSunat === 'ANULADO') return s;
+                      return v.metodoPago === 'Cortesía' ? s + (v.total || 0) : s;
+                    }, 0);
+                    return cort;
+                  })()).toFixed(2)}
+                </span>
               </div>
             </div>
           </div>
