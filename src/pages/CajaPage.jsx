@@ -4842,34 +4842,77 @@ export default function CajaPage({ currentUser }) {
             agregarItemDeliveryDirecto(selectedProduct, finalNotes);
           } else {
             const notesArray = [];
-            steps.forEach(step => {
-              const val = selections[step.key];
-              if (val) {
-                const valLower = val.toLowerCase();
-                if (valLower.includes('sin bebida') || valLower.includes('sin ensalada') || valLower.includes('omitir') || valLower.includes('sin acompañamiento') || valLower.includes('sin guarnicion')) {
-                  return;
-                }
-                const stepLower = step.name.toLowerCase();
-                if (stepLower.includes('bebida')) {
-                  notesArray.push(`Bebida: ${val}`);
-                } else if (stepLower.includes('ensalada')) {
-                  notesArray.push(val);
-                } else if (stepLower.includes('guarnicion') || stepLower.includes('acompañamiento')) {
-                  notesArray.push(`Guarnición: ${val}`);
-                } else if (stepLower.includes('fondo')) {
-                  notesArray.push(`Fondo: ${val}`);
-                } else if (stepLower.includes('entrada')) {
-                  notesArray.push(`Entrada: ${val}`);
+            const isParrilla2P = selectedProduct.nombre.toLowerCase().includes("2 personas") || selectedProduct.nombre.toLowerCase().includes("2p") || selectedProduct.nombre.toLowerCase().includes("2 p") || selectedProduct.nombre.toLowerCase().includes("2 pers");
+            let additionalDrinkProduct = null;
+
+            if (isParrilla2P) {
+              const guarn = selections["guarnicion"];
+              if (guarn && !guarn.toLowerCase().includes('sin')) notesArray.push(`Guarnición: ${guarn}`);
+              
+              const b1 = selections["bebida_1"];
+              const b2 = selections["bebida_2"];
+              const b_adic = selections["bebida_adicional"];
+              
+              if (b1 && b2 && !b1.toLowerCase().includes('sin') && !b2.toLowerCase().includes('sin')) {
+                if (b1 === b2) {
+                  // Agrupar dos de 1/2 Lt iguales en un solo litro para la Barra (ej: Sangría 1/2 Lt + Sangría 1/2 Lt => Sangría 1 Lt)
+                  const cleanName = b1.replace(" 1/2 Lt", " 1 Lt").replace(" - 1/2 Lt", " - 1 Lt").replace(" 1/2 Litro", " 1 Litro");
+                  notesArray.push(`Bebida: ${cleanName}`);
                 } else {
-                  notesArray.push(`${step.name}: ${val}`);
+                  notesArray.push(`Bebida 1: ${b1}`);
+                  notesArray.push(`Bebida 2: ${b2}`);
                 }
+              } else {
+                if (b1 && !b1.toLowerCase().includes('sin')) notesArray.push(`Bebida 1: ${b1}`);
+                if (b2 && !b2.toLowerCase().includes('sin')) notesArray.push(`Bebida 2: ${b2}`);
               }
-            });
+              
+              if (b_adic && b_adic !== "Sin Bebida Adicional") {
+                additionalDrinkProduct = productosMenu.find(p => p.nombre === b_adic);
+              }
+
+              const cantEns = selections["cantidad_ensaladas"];
+              if (cantEns && !cantEns.toLowerCase().includes('sin ensalada')) {
+                notesArray.push(cantEns);
+              }
+            } else {
+              steps.forEach(step => {
+                const val = selections[step.key];
+                if (val) {
+                  const valLower = val.toLowerCase();
+                  if (valLower.includes('sin bebida') || valLower.includes('sin ensalada') || valLower.includes('omitir') || valLower.includes('sin acompañamiento') || valLower.includes('sin guarnicion')) {
+                    return;
+                  }
+                  const stepLower = step.name.toLowerCase();
+                  if (stepLower.includes('bebida')) {
+                    notesArray.push(`Bebida: ${val}`);
+                  } else if (stepLower.includes('ensalada')) {
+                    notesArray.push(val);
+                  } else if (stepLower.includes('guarnicion') || stepLower.includes('acompañamiento')) {
+                    notesArray.push(`Guarnición: ${val}`);
+                  } else if (stepLower.includes('fondo')) {
+                    notesArray.push(`Fondo: ${val}`);
+                  } else if (stepLower.includes('entrada')) {
+                    notesArray.push(`Entrada: ${val}`);
+                  } else {
+                    notesArray.push(`${step.name}: ${val}`);
+                  }
+                }
+              });
+            }
+
             if (additionalNotes.trim()) {
               notesArray.push(`(Nota: ${additionalNotes.trim()})`);
             }
             const finalNotes = notesArray.join(' · ');
+            
+            // 1. Agregar el producto base
             agregarItemDeliveryDirecto(selectedProduct, finalNotes);
+
+            // 2. Si hay bebida adicional seleccionada, la agregamos como un producto separado e independiente en Caja
+            if (additionalDrinkProduct) {
+              agregarItemDeliveryDirecto(additionalDrinkProduct);
+            }
           }
           
           setOptionsModalOpen(false);
