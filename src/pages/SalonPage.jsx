@@ -1636,6 +1636,11 @@ export default function SalonPage({ currentUser }) {
                 // Buscamos el producto en la lista de productos cargada de la base de datos
                 additionalDrinkProduct = productos.find(p => p.nombre === b_adic);
               }
+
+              const cantEns = selections["cantidad_ensaladas"];
+              if (cantEns && !cantEns.toLowerCase().includes('sin ensalada')) {
+                notesArray.push(cantEns);
+              }
             } else {
               steps.forEach(step => {
                 const val = selections[step.key];

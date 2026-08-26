@@ -1367,7 +1367,12 @@ app.get('/api/pedidos/ensaladas', async (req, res) => {
         .filter(i => {
           const esBarra = BARRA_CATEGORIAS.includes(i.producto?.categoria);
           const llevaGuarnicion = i.producto?.requiereGuarnicion || (i.producto?.categoria && categoriasGuarnicion.includes(i.producto.categoria));
-          return llevaGuarnicion && !esBarra;
+          
+          // Excluir componentes desglosados internos (precio 0 sin notas) e ítems de reporte interno
+          const esDesgloseInterno = i.precio === 0 && !i.notas;
+          const esReporteInterno = i.entregado === true && i.precio === 0;
+
+          return llevaGuarnicion && !esBarra && !esDesgloseInterno && !esReporteInterno;
         })
         .map(i => ({
           nombre: i.nombre,
