@@ -5934,7 +5934,7 @@ export default function CajaPage({ currentUser }) {
                 {activeComprobante.clienteDireccion && (
                   <div><strong>Dirección:</strong> <span className="uppercase text-[9px] leading-none block mt-0.5">{activeComprobante.clienteDireccion}</span></div>
                 )}
-                <div><strong>Items:</strong> <span>{activeComprobante.items ? activeComprobante.items.reduce((sum, i) => sum + (parseFloat(i.cant || i.cantidad) || 1), 0) : 0}</span></div>
+                <div><strong>Items:</strong> <span>{activeComprobante.items ? activeComprobante.items.filter(item => item && (item.precio > 0 || (item.categoria && BARRA_CATEGORIAS.includes(item.categoria)) || (item.notas && item.notas.includes('CORTESÍA')) || (item.nombre && item.nombre.includes('CORTESÍA')))).length : 0}</span></div>
               </div>
 
               {/* Box de Datos de Despacho para Delivery */}
