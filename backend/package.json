@@ -9,7 +9,8 @@
     "db:migrate": "npx prisma migrate dev --name init",
     "db:seed": "node prisma/seed.js",
     "db:studio": "npx prisma studio",
-    "db:setup": "npx prisma migrate deploy && node prisma/seed.js"
+    "db:setup": "npx prisma migrate deploy && node prisma/seed.js",
+    "db:repair": "node scripts/data-repair.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

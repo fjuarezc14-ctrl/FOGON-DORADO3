@@ -17,9 +17,44 @@ model Usuario {
   nombre    String
   rol       String   // "Administrador", "Cajero", "Mozo", "Cocinero"
   pin       String
-  permisos  String[] // ["Dashboard", "Salon", "Caja", ...]
+  permisos  String[] // ["Dashboard", "Salon", "Cocina", "Barra", "Caja", ...]
   activo    Boolean  @default(true)
   creadoEn  DateTime @default(now())
+}
+
+// ============================================================
+// CLIENTES CON CRÉDITO
+// ============================================================
+model Cliente {
+  id          Int      @id @default(autoincrement())
+  nombre      String
+  tipoDoc     String   @default("DNI") // "DNI" | "RUC"
+  numDoc      String?
+  telefono    String?
+  direccion   String?
+  esTrabajador Boolean @default(false) // true si es personal interno
+  usuarioId   Int?     // Si esTrabajador, referencia al Usuario
+  activo      Boolean  @default(true)
+  creadoEn    DateTime @default(now())
+
+  AbonosCredito AbonoCredito[]
+}
+
+// ============================================================
+// ABONOS A CRÉDITOS
+// ============================================================
+model AbonoCredito {
+  id          Int      @id @default(autoincrement())
+  cliente     Cliente  @relation(fields: [clienteId], references: [id])
+  clienteId   Int
+  monto       Float
+  metodoPago  String   @default("Efectivo") // "Efectivo" | "Tarjeta" | "Yape" | "Mixto"
+  montoEfectivo Float  @default(0)
+  montoTarjeta  Float  @default(0)
+  montoYape     Float  @default(0)
+  registradoPor String
+  nota        String?
+  creadoEn    DateTime @default(now())
 }
 
 // ============================================================
@@ -102,10 +137,12 @@ model Venta {
   total           Float
   igv             Float
   subtotal        Float
-  metodoPago      String   @default("Efectivo") // "Efectivo", "Tarjeta", "Yape", "PedidosYa"
+  metodoPago      String   @default("Efectivo") // "Efectivo", "Tarjeta", "Yape", "PedidosYa", "Crédito", "Mixto"
   montoEfectivo   Float    @default(0)
   montoTarjeta    Float    @default(0)
   montoYape       Float    @default(0)
+  montoCredito    Float    @default(0) // Monto cargado a crédito
+  clienteCreditoId Int?    // Cliente al que se le cargó el crédito
   estadoNubefact  String   @default("PENDIENTE") // Obsoleto (usar estadoSunat en su lugar)
   estadoSunat     String   @default("PENDIENTE")
   serie           String?  // "F001" o "B001"
@@ -115,7 +152,13 @@ model Venta {
   // --- Ofertas / Descuentos ---
   ofertaDescripcion  String?  // Nombre de la oferta aplicada, si hubo
   descuentoAplicado  Float    @default(0) // Monto total descontado en esta venta
-  createdAt       DateTime @default(now())
+  // --- Anulación / Devolución ---
+  anulado            Boolean   @default(false)
+  motivoAnulacion    String?
+  anuladoPor         String?
+  anuladoEn          DateTime?
+  montoOriginal      Float?    // Guarda el monto cobrado originalmente antes de ser devuelto
+  createdAt          DateTime @default(now())
 }
 
 // ============================================================
@@ -137,6 +180,7 @@ model Compra {
   fechaEmision   DateTime? // Fecha real de la factura emitida por el proveedor
   urlPdf         String?   // URL de descarga del PDF desde apisunat.pe
   urlXml         String?   // URL de descarga del XML desde apisunat.pe
+  metodoPago     String    @default("Efectivo") // "Efectivo", "Tarjeta", "Yape", "Crédito", "Mixto"
   creadoEn       DateTime  @default(now())
 }
 

@@ -24,6 +24,8 @@ export default function BarraPage() {
   const [pedidos, setPedidos] = useState([]);
   const [horaLocal, setHoraLocal] = useState('');
   const [cancelaciones, setCancelaciones] = useState([]);
+  const [confirmandoPedidoId, setConfirmandoPedidoId] = useState(null);
+  const [despachando, setDespachando] = useState(false);
 
   const fetchPedidos = useCallback(async () => {
     try {
@@ -46,6 +48,8 @@ export default function BarraPage() {
   useEffect(() => {
     fetchPedidos();
     fetchCancelaciones();
+
+    // 1. Refresco periódico cada 2 segundos (ultrarrápido)
     const tick = () => {
       fetchPedidos();
       fetchCancelaciones();
@@ -53,16 +57,74 @@ export default function BarraPage() {
         hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima',
       }));
     };
-    const interval = setInterval(tick, 3000);
-    return () => clearInterval(interval);
+    const interval = setInterval(tick, 2000);
+
+    // 2. Refresco instantáneo e inmediato al tocar la pantalla o reactivar la pestaña
+    let lastImmediateFetch = 0;
+    const triggerInstantRefresh = () => {
+      const now = Date.now();
+      if (now - lastImmediateFetch > 1000) {
+        lastImmediateFetch = now;
+        fetchPedidos();
+        fetchCancelaciones();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        triggerInstantRefresh();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', triggerInstantRefresh);
+    window.addEventListener('pointerdown', triggerInstantRefresh, { passive: true });
+
+    // 3. Screen Wake Lock API para evitar que la tablet o monitor se suspenda
+    let wakeLock = null;
+    const requestWakeLock = async () => {
+      if ('wakeLock' in navigator && document.visibilityState === 'visible') {
+        try {
+          wakeLock = await navigator.wakeLock.request('screen');
+        } catch (err) {
+          // Navegador no soporta o rechazó wake lock (ignorar de forma segura)
+        }
+      }
+    };
+    requestWakeLock();
+    document.addEventListener('visibilitychange', requestWakeLock);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener('visibilitychange', requestWakeLock);
+      window.removeEventListener('focus', triggerInstantRefresh);
+      window.removeEventListener('pointerdown', triggerInstantRefresh);
+      if (wakeLock) wakeLock.release().catch(() => {});
+    };
   }, [fetchPedidos, fetchCancelaciones]);
 
+  const handleClicListoPedido = (pedidoId) => {
+    if (confirmandoPedidoId === pedidoId) {
+      marcarListoBarra(pedidoId);
+      setConfirmandoPedidoId(null);
+    } else {
+      setConfirmandoPedidoId(pedidoId);
+      setTimeout(() => {
+        setConfirmandoPedidoId(prev => (prev === pedidoId ? null : prev));
+      }, 3500);
+    }
+  };
+
   const marcarListoBarra = async (pedidoId) => {
+    setDespachando(true);
     try {
       await api.prepararPedido(pedidoId, 'barra');
       await fetchPedidos();
     } catch (err) {
       alert('Error al despachar bebidas: ' + err.message);
+    } finally {
+      setDespachando(false);
     }
   };
 
@@ -254,15 +316,36 @@ export default function BarraPage() {
                     ))}
                   </div>
 
-                  {/* Botón despachar bebidas */}
+                  {/* Botón despachar bebidas con confirmación en 2 pasos */}
                   <div className="p-4 bg-slate-900 shrink-0 border-t border-indigo-950/40">
-                    <button
-                      onClick={() => marcarListoBarra(p.pedidoId)}
-                      className="w-full py-3.5 bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 text-white font-black uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-indigo-500/10 flex items-center justify-center gap-2 text-xs"
-                    >
-                      <CheckCheck className="w-4 h-4" />
-                      Listo · Despachar
-                    </button>
+                    {confirmandoPedidoId === p.pedidoId ? (
+                      <div className="flex gap-2 animate-fade-in">
+                        <button
+                          onClick={() => marcarListoBarra(p.pedidoId)}
+                          disabled={despachando}
+                          className="flex-1 py-3.5 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2 text-xs cursor-pointer animate-pulse border border-amber-600/30"
+                        >
+                          <CheckCheck className="w-4 h-4 text-slate-950" />
+                          ¿Confirmar Despacho?
+                        </button>
+                        <button
+                          onClick={() => setConfirmandoPedidoId(null)}
+                          className="px-3.5 py-3.5 bg-slate-700 hover:bg-slate-600 text-white font-black rounded-xl text-xs uppercase cursor-pointer"
+                          title="Cancelar confirmación"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => handleClicListoPedido(p.pedidoId)}
+                        disabled={despachando}
+                        className="w-full py-3.5 bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 active:scale-95 text-white font-black uppercase tracking-widest rounded-xl transition-all shadow-lg shadow-indigo-500/10 flex items-center justify-center gap-2 text-xs cursor-pointer disabled:opacity-50"
+                      >
+                        <CheckCheck className="w-4 h-4" />
+                        Listo · Despachar
+                      </button>
+                    )}
                   </div>
                 </div>
               );

@@ -24,11 +24,14 @@ export default function CocinaPage() {
   const [pedidos, setPedidos] = useState([]);
   const [horaLocal, setHoraLocal] = useState('');
   const [cancelaciones, setCancelaciones] = useState([]);
+  const [confirmandoPedidoId, setConfirmandoPedidoId] = useState(null);
+  const [confirmandoItemId, setConfirmandoItemId] = useState(null);
+  const [despachando, setDespachando] = useState(false);
 
   const fetchPedidos = useCallback(async () => {
     try {
       const data = await api.getPedidosCocina();
-      setPedidos(data);
+      if (Array.isArray(data)) setPedidos(data);
     } catch (err) {
       console.error('Error cargando cocina:', err);
     }
@@ -46,6 +49,8 @@ export default function CocinaPage() {
   useEffect(() => {
     fetchPedidos();
     fetchCancelaciones();
+
+    // 1. Refresco periódico cada 2 segundos (ultrarrápido)
     const tick = () => {
       fetchPedidos();
       fetchCancelaciones();
@@ -53,20 +58,90 @@ export default function CocinaPage() {
         hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima',
       }));
     };
-    const interval = setInterval(tick, 3000);
-    return () => clearInterval(interval);
+    const interval = setInterval(tick, 2000);
+
+    // 2. Refresco instantáneo e inmediato al tocar la pantalla o reactivar la pestaña
+    let lastImmediateFetch = 0;
+    const triggerInstantRefresh = () => {
+      const now = Date.now();
+      if (now - lastImmediateFetch > 1000) {
+        lastImmediateFetch = now;
+        fetchPedidos();
+        fetchCancelaciones();
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        triggerInstantRefresh();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', triggerInstantRefresh);
+    window.addEventListener('pointerdown', triggerInstantRefresh, { passive: true });
+
+    // 3. Screen Wake Lock API para evitar que la tablet o monitor se suspenda
+    let wakeLock = null;
+    const requestWakeLock = async () => {
+      if ('wakeLock' in navigator && document.visibilityState === 'visible') {
+        try {
+          wakeLock = await navigator.wakeLock.request('screen');
+        } catch (err) {
+          // Navegador no soporta o rechazó wake lock (ignorar de forma segura)
+        }
+      }
+    };
+    requestWakeLock();
+    document.addEventListener('visibilitychange', requestWakeLock);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener('visibilitychange', requestWakeLock);
+      window.removeEventListener('focus', triggerInstantRefresh);
+      window.removeEventListener('pointerdown', triggerInstantRefresh);
+      if (wakeLock) wakeLock.release().catch(() => {});
+    };
   }, [fetchPedidos, fetchCancelaciones]);
 
-  const marcarListo = async (pedidoId) => {
+  const handleClicListoPedido = (pedidoId) => {
+    if (confirmandoPedidoId === pedidoId) {
+      ejecutarMarcarListo(pedidoId);
+      setConfirmandoPedidoId(null);
+    } else {
+      setConfirmandoPedidoId(pedidoId);
+      setTimeout(() => {
+        setConfirmandoPedidoId(prev => (prev === pedidoId ? null : prev));
+      }, 3500);
+    }
+  };
+
+  const ejecutarMarcarListo = async (pedidoId) => {
+    setDespachando(true);
     try {
       await api.prepararPedido(pedidoId, 'cocina');
       await fetchPedidos();
     } catch (err) {
       alert('Error al marcar listo: ' + err.message);
+    } finally {
+      setDespachando(false);
     }
   };
 
-  const marcarItemListo = async (itemId) => {
+  const handleClicListoItem = (itemId) => {
+    if (confirmandoItemId === itemId) {
+      ejecutarMarcarItemListo(itemId);
+      setConfirmandoItemId(null);
+    } else {
+      setConfirmandoItemId(itemId);
+      setTimeout(() => {
+        setConfirmandoItemId(prev => (prev === itemId ? null : prev));
+      }, 3500);
+    }
+  };
+
+  const ejecutarMarcarItemListo = async (itemId) => {
     try {
       await api.prepararItem(itemId);
       await fetchPedidos();
@@ -80,7 +155,6 @@ export default function CocinaPage() {
       await api.dismissCancelacionCocina(id);
       setCancelaciones(prev => prev.filter(c => c.id !== id));
     } catch (err) {
-      // Si falla la red, lo quitamos localmente igual para no bloquear al cocinero
       setCancelaciones(prev => prev.filter(c => c.id !== id));
     }
   };
@@ -153,7 +227,7 @@ export default function CocinaPage() {
           <div>
             <h1 className="text-xl md:text-2xl font-black text-white uppercase tracking-tight">Pedidos en Cola</h1>
             <p className="text-xs md:text-sm text-slate-400">
-              Solo items de cocina · Las bebidas se sirven desde barra.
+              Solo items de cocina · Toca "Listo" para confirmar el despacho del pedido.
             </p>
           </div>
           <div className="text-white flex items-center gap-2 font-bold text-sm bg-slate-800 px-4 py-2 rounded-xl border border-slate-700 shadow-md">
@@ -215,7 +289,7 @@ export default function CocinaPage() {
                     )}
                   </div>
 
-                   {/* Info del pedido */}
+                  {/* Info del pedido */}
                   <div className="p-3 flex justify-between items-center text-xs font-black text-slate-500 border-b border-slate-200 shrink-0 bg-slate-50">
                     <span className="flex items-center gap-1.5">
                       <User className="w-4 h-4 text-slate-400" />
@@ -251,7 +325,6 @@ export default function CocinaPage() {
                               <span className="block text-slate-800 font-bold text-sm leading-snug pt-0.5 uppercase">
                                 {item.nombre}
                               </span>
-                              {/* Precio del ítem — ayuda a identificar la porción */}
                               {parseFloat(item.precio || 0) > 0 && (
                                 <span className="inline-block mt-0.5 bg-slate-100 border border-slate-200 text-slate-500 font-black text-[10px] px-2 py-0.5 rounded-lg font-mono">
                                   S/ {parseFloat(item.precio || 0).toFixed(2)}
@@ -260,11 +333,19 @@ export default function CocinaPage() {
                             </div>
                           </div>
                           <button
-                            onClick={() => marcarItemListo(item.id)}
-                            className="p-1.5 hover:bg-emerald-500 hover:text-white rounded-lg text-slate-450 border border-slate-200 hover:border-emerald-500 transition-all active:scale-90 ml-2 shrink-0"
-                            title="Marcar este plato como Listo"
+                            onClick={() => handleClicListoItem(item.id)}
+                            className={`p-1.5 rounded-lg border transition-all active:scale-90 ml-2 shrink-0 cursor-pointer ${
+                              confirmandoItemId === item.id
+                                ? 'bg-amber-500 text-slate-950 border-amber-600 animate-pulse font-black text-[10px] px-2.5'
+                                : 'hover:bg-emerald-500 hover:text-white text-slate-400 border-slate-200 hover:border-emerald-500'
+                            }`}
+                            title={confirmandoItemId === item.id ? 'Toca de nuevo para confirmar listo' : 'Marcar este plato como Listo'}
                           >
-                            <CheckCircle2 className="w-4 h-4" />
+                            {confirmandoItemId === item.id ? (
+                              <span className="flex items-center gap-1 font-bold">¿Listo?</span>
+                            ) : (
+                              <CheckCircle2 className="w-4 h-4" />
+                            )}
                           </button>
                         </div>
                         {item.notas && (
@@ -278,15 +359,36 @@ export default function CocinaPage() {
                     ))}
                   </div>
 
-                  {/* Botón listo */}
+                  {/* Botón listo con confirmación de 2 pasos */}
                   <div className="p-4 bg-slate-50 shrink-0 pb-6 border-t-2 border-dashed border-slate-300">
-                    <button
-                      onClick={() => marcarListo(p.pedidoId)}
-                      className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-600 text-slate-900 font-black uppercase tracking-widest rounded-xl transition-all shadow-md flex items-center justify-center gap-2 text-sm"
-                    >
-                      <CheckCheck className="w-5 h-5" />
-                      {esDelivery ? 'Listo para Recoger' : 'Listo · Servir'}
-                    </button>
+                    {confirmandoPedidoId === p.pedidoId ? (
+                      <div className="flex gap-2 animate-fade-in">
+                        <button
+                          onClick={() => ejecutarMarcarListo(p.pedidoId)}
+                          disabled={despachando}
+                          className="flex-1 py-3.5 bg-amber-500 hover:bg-amber-400 active:scale-95 text-slate-950 font-black uppercase tracking-wider rounded-xl transition-all shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2 text-xs cursor-pointer animate-pulse border border-amber-600/30"
+                        >
+                          <CheckCheck className="w-4 h-4 text-slate-950" />
+                          ¿Confirmar Despacho?
+                        </button>
+                        <button
+                          onClick={() => setConfirmandoPedidoId(null)}
+                          className="px-4 py-3.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-black rounded-xl text-xs uppercase cursor-pointer"
+                          title="Cancelar confirmación"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => handleClicListoPedido(p.pedidoId)}
+                        disabled={despachando}
+                        className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-slate-900 font-black uppercase tracking-widest rounded-xl transition-all shadow-md flex items-center justify-center gap-2 text-sm cursor-pointer"
+                      >
+                        <CheckCheck className="w-5 h-5" />
+                        {esDelivery ? 'Listo para Recoger' : 'Listo · Servir'}
+                      </button>
+                    )}
                   </div>
                 </div>
               );

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Download, TrendingUp, TrendingDown, DollarSign, XCircle, Users, Truck, Calendar, Search, Receipt, Printer, X, Ban, Wallet, Banknote, CreditCard, Gift } from 'lucide-react';
+import { Download, TrendingUp, TrendingDown, DollarSign, XCircle, Users, Truck, Calendar, Search, Receipt, Printer, X, Wallet, Briefcase } from 'lucide-react';
+
 import { api } from '../api';
 
 
@@ -19,6 +20,32 @@ const parseDeliveryInfo = (code) => {
     conCuanto: pagaPart,
     vuelto: vueltoPart,
   };
+};
+
+const parsearCreditoSplit = (ofertaDescripcion, defaultClienteId, defaultMonto) => {
+  if (ofertaDescripcion && typeof ofertaDescripcion === 'string') {
+    const match = ofertaDescripcion.match(/\[CREDITO_SPLIT:(.*?)\]/);
+    if (match && match[1]) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map(item => ({
+            clienteId: parseInt(item.clienteId || item.id),
+            nombre: item.nombre || '',
+            monto: parseFloat(item.monto || 0)
+          })).filter(item => !isNaN(item.clienteId) && item.monto > 0);
+        }
+      } catch (e) {
+        console.error('Error parseando CREDITO_SPLIT:', e);
+      }
+    }
+  }
+  const defId = parseInt(defaultClienteId);
+  const defM = parseFloat(defaultMonto || 0);
+  if (!isNaN(defId) && defId > 0 && defM > 0) {
+    return [{ clienteId: defId, monto: defM, nombre: '' }];
+  }
+  return [];
 };
 
 export default function ReportesPage() {
@@ -57,6 +84,8 @@ export default function ReportesPage() {
   const [sunatModalOpen, setSunatModalOpen] = useState(false);
   const [rotacion, setRotacion] = useState([]);
   const [compras, setCompras] = useState([]);
+  const [reportePollos, setReportePollos] = useState(null);
+  const [clientes, setClientes] = useState([]);
   const [gerencialModalOpen, setGerencialModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('resumen');
 
@@ -177,6 +206,8 @@ export default function ReportesPage() {
       subtotal: v.subtotal,
       igv: v.igv,
       total: v.total,
+      descuentoAplicado: v.descuentoAplicado || 0,
+      ofertaDescripcion: v.ofertaDescripcion || null,
       totalLetras,
       hashResumen: "gSbTDa" + Math.random().toString(36).substring(2, 8).toUpperCase() + "iIZDyirfA6TBPKJnEI=",
       metodoPago: v.metodoPago,
@@ -219,13 +250,15 @@ export default function ReportesPage() {
   const fetchReportes = useCallback(async (desde, hasta) => {
     setFiltrando(true);
     try {
-      const [data, cancs, mzs, vts, rot, cmps] = await Promise.all([
+      const [data, cancs, mzs, vts, rot, cmps, pollos, clients] = await Promise.all([
         api.getReporteContable(desde, hasta),
         api.getCancelaciones(desde, hasta),
         api.getReporteMozos(desde, hasta),
         api.getHistorialVentas(desde, hasta),
         api.getRotacion(desde, hasta),
         api.getCompras(desde, hasta),
+        api.getReportePollos(desde, hasta).catch(() => null),
+        api.getClientes().catch(() => []),
       ]);
       setResumen(data);
       setCancelaciones(cancs || []);
@@ -233,6 +266,8 @@ export default function ReportesPage() {
       setVentas(vts || []);
       setRotacion(rot || []);
       setCompras(cmps || []);
+      setReportePollos(pollos);
+      setClientes(clients || []);
     } catch(err) {
       console.error('Error cargando reportes:', err);
     } finally {
@@ -267,23 +302,33 @@ export default function ReportesPage() {
         ['REGISTRO TRIBUTARIO (RCE / RVE) - EL FOGÓN DORADO'],
         [`PERIODO: DESDE ${fechaDesde} HASTA ${fechaHasta}`],
         [],
-        ['TIPO', 'FECHA EMISION', 'COMPROBANTE', 'NUM DOCUMENTO', 'CLIENTE / PROVEEDOR', 'METODO PAGO', 'BASE IMPONIBLE (S/)', 'IGV (S/)', 'TOTAL (S/)']
+        ['TIPO', 'FECHA EMISION', 'COMPROBANTE', 'NUM DOCUMENTO', 'CLIENTE / PROVEEDOR', 'METODO PAGO', 'BASE IMPONIBLE (S/)', 'IGV (S/)', 'TOTAL (S/)', 'EFECTIVO (S/)', 'TARJETA (S/)', 'YAPE (S/)']
       ];
 
       // Insertar Ventas
       ventasData.forEach(v => {
         const date = v.createdAt ? v.createdAt.split('T')[0] : '';
-        const esAnulado = v.estadoPedido === 'Cancelado' || v.estadoSunat === 'ANULADO' || v.total === 0;
+        let efec = v.montoEfectivo || (v.metodoPago === 'Efectivo' ? v.total : 0);
+        let tarj = v.montoTarjeta || (v.metodoPago === 'Tarjeta' ? v.total : 0);
+        let yape = v.montoYape || (v.metodoPago === 'Yape' ? v.total : 0);
+        
+        if (v.metodoPago === 'Mixto' && (efec + tarj + yape) < v.total) {
+          efec += (v.total - (efec + tarj + yape));
+        }
+
         rows.push([
           'VENTA',
           date,
-          v.tipoComprobante + (esAnulado ? ' (ANULADO)' : ''),
+          v.tipoComprobante,
           v.numDocumento || 'S/D',
           v.nombreCliente || 'PÚBLICO GENERAL',
-          esAnulado ? 'ANULADO' : v.metodoPago,
-          esAnulado ? '0.00' : v.subtotal.toFixed(2),
-          esAnulado ? '0.00' : v.igv.toFixed(2),
-          esAnulado ? '0.00' : v.total.toFixed(2)
+          v.metodoPago,
+          v.subtotal.toFixed(2),
+          v.igv.toFixed(2),
+          v.total.toFixed(2),
+          efec.toFixed(2),
+          tarj.toFixed(2),
+          yape.toFixed(2)
         ]);
       });
 
@@ -299,7 +344,10 @@ export default function ReportesPage() {
           'Efectivo/Transferencia',
           c.baseImponible.toFixed(2),
           c.igv.toFixed(2),
-          c.total.toFixed(2)
+          c.total.toFixed(2),
+          '0.00',
+          '0.00',
+          '0.00'
         ]);
       });
 
@@ -448,7 +496,7 @@ export default function ReportesPage() {
           { id: 'resumen', label: '📊 Resumen Financiero y RCE' },
           { id: 'rotacion', label: '🍽️ Rotación y Pollos' },
           { id: 'pedidosya', label: '🛵 Control PedidosYa' },
-          { id: 'consumo', label: '👤 Consumo de Personal (Planilla)' },
+          { id: 'consumo', label: '👥 Consumos y Créditos' },
           { id: 'mozos', label: '👥 Mozos y Cancelaciones' },
         ].map(tab => (
           <button
@@ -524,125 +572,44 @@ export default function ReportesPage() {
             </div>
           </div>
 
-          {/* DESGLOSE DE RECAUDACIÓN EN CAJA (PERIODO SELECCIONADO) */}
-          <div className="bg-white p-5 rounded-3xl border border-slate-200/60 shadow-sm mb-8">
-            <div className="flex items-center gap-2 mb-4">
-              <Wallet className="w-4 h-4 text-emerald-600" />
-              <h2 className="font-black text-slate-700 uppercase text-xs tracking-wider">
-                Desglose de Recaudación en Caja (Periodo Seleccionado)
-              </h2>
-            </div>
-            
-            <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
-              {/* 1. EFECTIVO TOTAL */}
-              <div className="bg-slate-50 border border-slate-200/70 p-3.5 rounded-2xl flex flex-col items-center justify-center text-center">
-                <span className="text-[10px] font-black uppercase text-emerald-600 tracking-wider flex items-center gap-1">
-                  <Banknote className="w-3 h-3" /> Efectivo Total
-                </span>
-                <span className="text-lg font-black font-mono text-emerald-700 mt-1">
-                  S/ {((() => {
-                    const efec = ventas.reduce((s, v) => {
-                      if (v.estadoPedido === 'Cancelado' || v.estadoSunat === 'ANULADO') return s;
-                      if (v.metodoPago === 'Cortesía' || v.metodoPago === 'Consumo' || v.metodoPago === 'PedidosYa') return s;
-                      if (v.metodoPago === 'Mixto' || (v.montoEfectivo > 0 || v.montoTarjeta > 0 || v.montoYape > 0)) {
-                        return s + (v.montoEfectivo || 0);
-                      }
-                      return v.metodoPago === 'Efectivo' ? s + (v.total || 0) : s;
-                    }, 0);
-                    return efec;
-                  })()).toFixed(2)}
-                </span>
-              </div>
-
-              {/* 2. TARJETA / POS */}
-              <div className="bg-slate-50 border border-slate-200/70 p-3.5 rounded-2xl flex flex-col items-center justify-center text-center">
-                <span className="text-[10px] font-black uppercase text-blue-600 tracking-wider flex items-center gap-1">
-                  <CreditCard className="w-3 h-3" /> Tarjeta / POS
-                </span>
-                <span className="text-lg font-black font-mono text-blue-700 mt-1">
-                  S/ {((() => {
-                    const tarj = ventas.reduce((s, v) => {
-                      if (v.estadoPedido === 'Cancelado' || v.estadoSunat === 'ANULADO') return s;
-                      if (v.metodoPago === 'Cortesía' || v.metodoPago === 'Consumo' || v.metodoPago === 'PedidosYa') return s;
-                      if (v.metodoPago === 'Mixto' || (v.montoEfectivo > 0 || v.montoTarjeta > 0 || v.montoYape > 0)) {
-                        return s + (v.montoTarjeta || 0);
-                      }
-                      return v.metodoPago === 'Tarjeta' ? s + (v.total || 0) : s;
-                    }, 0);
-                    return tarj;
-                  })()).toFixed(2)}
-                </span>
-              </div>
-
-              {/* 3. YAPE / PLIN */}
-              <div className="bg-slate-50 border border-slate-200/70 p-3.5 rounded-2xl flex flex-col items-center justify-center text-center">
-                <span className="text-[10px] font-black uppercase text-purple-600 tracking-wider flex items-center gap-1">
-                  <Wallet className="w-3 h-3" /> Yape / Plin
-                </span>
-                <span className="text-lg font-black font-mono text-purple-700 mt-1">
-                  S/ {((() => {
-                    const yp = ventas.reduce((s, v) => {
-                      if (v.estadoPedido === 'Cancelado' || v.estadoSunat === 'ANULADO') return s;
-                      if (v.metodoPago === 'Cortesía' || v.metodoPago === 'Consumo' || v.metodoPago === 'PedidosYa') return s;
-                      if (v.metodoPago === 'Mixto' || (v.montoEfectivo > 0 || v.montoTarjeta > 0 || v.montoYape > 0)) {
-                        return s + (v.montoYape || 0);
-                      }
-                      return (v.metodoPago === 'Yape' || v.metodoPago === 'Plin') ? s + (v.total || 0) : s;
-                    }, 0);
-                    return yp;
-                  })()).toFixed(2)}
-                </span>
-              </div>
-
-              {/* 4. PEDIDOSYA */}
-              <div className="bg-slate-50 border border-slate-200/70 p-3.5 rounded-2xl flex flex-col items-center justify-center text-center">
-                <span className="text-[10px] font-black uppercase text-rose-500 tracking-wider flex items-center gap-1">
-                  <Truck className="w-3 h-3" /> PedidosYa
-                </span>
-                <span className="text-lg font-black font-mono text-rose-600 mt-1">
-                  S/ {((() => {
-                    const py = ventas.reduce((s, v) => {
-                      if (v.estadoPedido === 'Cancelado' || v.estadoSunat === 'ANULADO') return s;
-                      return v.metodoPago === 'PedidosYa' ? s + (v.total || 0) : s;
-                    }, 0);
-                    return py;
-                  })()).toFixed(2)}
-                </span>
-              </div>
-
-              {/* 5. CONSUMOS PERS. */}
-              <div className="bg-slate-50 border border-slate-200/70 p-3.5 rounded-2xl flex flex-col items-center justify-center text-center">
-                <span className="text-[10px] font-black uppercase text-indigo-600 tracking-wider flex items-center gap-1">
-                  <Users className="w-3 h-3" /> Consumos Pers.
-                </span>
-                <span className="text-lg font-black font-mono text-indigo-700 mt-1">
-                  S/ {((() => {
-                    const cons = ventas.reduce((s, v) => {
-                      if (v.estadoPedido === 'Cancelado' || v.estadoSunat === 'ANULADO') return s;
-                      return v.metodoPago === 'Consumo' ? s + (v.total || 0) : s;
-                    }, 0);
-                    return cons;
-                  })()).toFixed(2)}
-                </span>
-              </div>
-
-              {/* 6. CORTESÍAS */}
-              <div className="bg-slate-50 border border-slate-200/70 p-3.5 rounded-2xl flex flex-col items-center justify-center text-center">
-                <span className="text-[10px] font-black uppercase text-amber-600 tracking-wider flex items-center gap-1">
-                  <Gift className="w-3 h-3" /> Cortesías
-                </span>
-                <span className="text-lg font-black font-mono text-amber-600 mt-1">
-                  S/ {((() => {
-                    const cort = ventas.reduce((s, v) => {
-                      if (v.estadoPedido === 'Cancelado' || v.estadoSunat === 'ANULADO') return s;
-                      return v.metodoPago === 'Cortesía' ? s + (v.total || 0) : s;
-                    }, 0);
-                    return cort;
-                  })()).toFixed(2)}
-                </span>
+          {/* DESGLOSE DE RECAUDACIÓN EN CAJA */}
+          {resumen.desgloseCaja && (
+            <div className="bg-slate-50 border border-slate-200/80 rounded-3xl p-5 mb-8 shadow-sm">
+              <h3 className="font-black text-slate-800 uppercase text-xs tracking-wider mb-3 flex items-center gap-2">
+                <Wallet className="w-4 h-4 text-emerald-600" /> Desglose de Recaudación en Caja (Periodo Seleccionado)
+              </h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-3 text-center">
+                  <span className="text-[10px] font-black uppercase text-emerald-800">💵 Efectivo Total</span>
+                  <p className="text-lg font-mono font-black text-emerald-700 mt-0.5">S/ {(resumen.desgloseCaja.efectivo ?? 0).toFixed(2)}</p>
+                </div>
+                <div className="bg-blue-50/70 border border-blue-200/80 rounded-2xl p-3 text-center">
+                  <span className="text-[10px] font-black uppercase text-blue-800">💳 Tarjeta / POS</span>
+                  <p className="text-lg font-mono font-black text-blue-700 mt-0.5">S/ {(resumen.desgloseCaja.tarjeta ?? 0).toFixed(2)}</p>
+                </div>
+                <div className="bg-purple-50/70 border border-purple-200/80 rounded-2xl p-3 text-center">
+                  <span className="text-[10px] font-black uppercase text-purple-800">📱 Yape / Plin</span>
+                  <p className="text-lg font-mono font-black text-purple-700 mt-0.5">S/ {(resumen.desgloseCaja.yape ?? 0).toFixed(2)}</p>
+                </div>
+                <div className="bg-indigo-50/70 border border-indigo-200/80 rounded-2xl p-3 text-center">
+                  <span className="text-[10px] font-black uppercase text-indigo-800">🛵 PedidosYa</span>
+                  <p className="text-lg font-mono font-black text-indigo-700 mt-0.5">S/ {(resumen.desgloseCaja.pedidosYa ?? 0).toFixed(2)}</p>
+                </div>
+                <div className="bg-violet-50/70 border border-violet-200/80 rounded-2xl p-3 text-center">
+                  <span className="text-[10px] font-black uppercase text-violet-800">👤 Consumo Planilla</span>
+                  <p className="text-lg font-mono font-black text-violet-700 mt-0.5">S/ {(resumen.desgloseCaja.consumos ?? resumen.desgloseCaja.consumoPlanilla ?? 0).toFixed(2)}</p>
+                </div>
+                <div className="bg-sky-50/70 border border-sky-200/80 rounded-2xl p-3 text-center">
+                  <span className="text-[10px] font-black uppercase text-sky-800">🤝 Crédito Comercial</span>
+                  <p className="text-lg font-mono font-black text-sky-700 mt-0.5">S/ {(resumen.desgloseCaja.credito ?? resumen.desgloseCaja.consumoClientes ?? 0).toFixed(2)}</p>
+                </div>
+                <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-3 text-center">
+                  <span className="text-[10px] font-black uppercase text-amber-800">🎁 Cortesías</span>
+                  <p className="text-lg font-mono font-black text-amber-700 mt-0.5">S/ {(resumen.desgloseCaja.cortesias ?? 0).toFixed(2)}</p>
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* HISTORIAL Y AUDITORÍA DE COMPROBANTES EMITIDOS */}
           <div className="bg-white rounded-3xl border border-slate-200/60 shadow-sm overflow-hidden mb-8">
@@ -678,10 +645,8 @@ export default function ReportesPage() {
                 <tbody className="divide-y divide-slate-50 text-sm bg-white font-bold text-slate-700">
                   {(() => {
                     const filtradas = ventas;
-                    return filtradas.length > 0 ? filtradas.map(v => {
-                      const esDevuelto = v.estadoPedido === 'Cancelado' || v.estadoSunat === 'ANULADO' || v.total === 0;
-                      return (
-                      <tr key={v.id} className={`hover:bg-slate-50/80 transition-colors ${esDevuelto ? 'bg-rose-50/30' : ''}`}>
+                    return filtradas.length > 0 ? filtradas.map(v => (
+                      <tr key={v.id} className={`hover:bg-slate-50/80 transition-colors ${v.anulado ? 'bg-red-50/60' : ''}`}>
                         <td className="px-6 py-4">
                           <div className="flex flex-col">
                             <span className="font-mono text-xs font-black text-slate-900">#VT-{v.id}</span>
@@ -690,17 +655,19 @@ export default function ReportesPage() {
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex flex-col">
-                            <span className="font-bold text-slate-800 text-xs">
-                              {v.tipoComprobante} {v.serie ? `${v.serie}-${String(v.numero).padStart(4, '0')}` : `#${v.id}`}
-                            </span>
-                            {esDevuelto && (
-                              <span className="bg-rose-100 text-rose-700 text-[10px] font-black px-2 py-0.5 rounded-md inline-flex items-center gap-1 border border-rose-200 uppercase w-fit mt-1">
-                                <Ban className="w-3 h-3" /> ANULADO / DEVUELTO
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-slate-800 text-xs">
+                                {v.tipoComprobante} {v.serie ? `${v.serie}-${String(v.numero).padStart(4, '0')}` : `#${v.id}`}
                               </span>
-                            )}
-                            {esDevuelto && v.motivoCancela && (
-                              <span className="text-[10px] text-rose-600 font-bold block mt-0.5 max-w-xs leading-tight">
-                                Motivo: {v.motivoCancela} {v.canceladoPor ? `(${v.canceladoPor})` : ''}
+                              {v.anulado && (
+                                <span className="bg-red-100 text-red-800 text-[9px] font-black px-1.5 py-0.5 rounded border border-red-200 flex items-center gap-1 shrink-0">
+                                  <span className="w-1.5 h-1.5 bg-red-600 rounded-full animate-ping"></span> 🚫 DEVUELTO
+                                </span>
+                              )}
+                            </div>
+                            {v.anulado && v.motivoAnulacion && (
+                              <span className="text-[9px] text-red-600 font-medium block leading-none mt-1">
+                                Motivo: {v.motivoAnulacion} ({v.anuladoPor || 'Admin'})
                               </span>
                             )}
                             <span className="text-[10px] text-slate-500 uppercase tracking-tight font-medium mt-0.5">
@@ -716,83 +683,118 @@ export default function ReportesPage() {
                                 return v.nombreCliente || 'Consumidor Final';
                               })()}
                             </span>
+                            {(() => {
+                              const parsed = parseDeliveryInfo(v.codigoPedidosYa) || parseDeliveryInfo(v.nombreCliente);
+                              if (!parsed) return null;
+                              return (
+                                <span className="text-[9px] text-slate-400 font-mono mt-0.5 block leading-none">
+                                  📞 {parsed.telefono} · 📍 {parsed.direccion.substring(0, 20)}{parsed.direccion.length > 20 ? '...' : ''}
+                                </span>
+                              );
+                            })()}
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          {(() => {
-                            if (esDevuelto) {
-                              return (
-                                <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wide border bg-rose-50 border-rose-200 text-rose-700">
-                                  ANULADO
-                                </span>
-                              );
-                            }
+                          {v.codigoPedidosYa ? (
+                            v.codigoPedidosYa.startsWith('DELIVERY -') ? (
+                              <span className="bg-indigo-50 border border-indigo-200 text-indigo-700 text-[10px] font-black uppercase px-2 py-0.5 rounded-md whitespace-nowrap">
+                                🛵 DEL: {(() => {
+                                  const parsed = parseDeliveryInfo(v.codigoPedidosYa);
+                                  const name = parsed ? parsed.nombre : v.codigoPedidosYa.replace('DELIVERY - ', '');
+                                  const first = name.split(/\s+/)[0] || '';
+                                  return first.substring(0, 10);
+                                })()}
+                              </span>
+                            ) : v.codigoPedidosYa.startsWith('LLEVAR -') ? (
+                              <span className="bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-black uppercase px-2 py-0.5 rounded-md whitespace-nowrap">
+                                🛍️ LLEVAR: {(() => {
+                                  const name = v.codigoPedidosYa.replace('LLEVAR - ', '');
+                                  const first = name.split(/\s+/)[0] || '';
+                                  return first.substring(0, 10);
+                                })()}
+                              </span>
+                            ) : (
+                              <span className="bg-blue-50 border border-blue-200 text-blue-700 text-[10px] font-black uppercase px-2 py-0.5 rounded-md font-mono whitespace-nowrap">
+                                🛵 PY: {v.codigoPedidosYa}
+                              </span>
+                            )
+                          ) : (
+                            <span className="bg-amber-50 border border-amber-200 text-amber-700 text-[10px] font-black uppercase px-2 py-0.5 rounded-md whitespace-nowrap">
+                              🍽️ Mesa {v.mesaNum || 'S/M'}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          {v.anulado ? (
+                            <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wide bg-red-100 border border-red-200 text-red-700 whitespace-nowrap">
+                              🚫 CANCELADO
+                            </span>
+                          ) : (() => {
                             let method = v.metodoPago;
-                            let label = method;
                             if (method === 'PedidosYa' && v.codigoPedidosYa) {
                               if (v.codigoPedidosYa.startsWith('DELIVERY -') || v.codigoPedidosYa.startsWith('LLEVAR -')) {
                                 method = 'Efectivo';
-                                label = 'Efectivo';
                               }
-                            }
-                            if (method === 'Mixto') {
-                              const partes = [];
-                              if (v.montoEfectivo > 0) partes.push(`Efec S/${v.montoEfectivo.toFixed(2)}`);
-                              if (v.montoTarjeta > 0) partes.push(`Tarj S/${v.montoTarjeta.toFixed(2)}`);
-                              if (v.montoYape > 0) partes.push(`Yape S/${v.montoYape.toFixed(2)}`);
-                              label = partes.length > 0 ? `MIXTO (${partes.join(' + ')})` : 'MIXTO';
                             }
                             return (
                               <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wide border ${
                                 method === 'Efectivo' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
                                 method === 'Tarjeta' ? 'bg-blue-50 border-blue-200 text-blue-700' :
                                 method === 'Yape' ? 'bg-purple-50 border-purple-200 text-purple-700' :
-                                method === 'Mixto' ? 'bg-amber-50 border-amber-200 text-amber-800' :
                                 method === 'Cortesía' ? 'bg-amber-50 border-amber-200 text-amber-700' :
                                 method === 'Consumo' ? 'bg-violet-50 border-violet-200 text-violet-700' :
                                 'bg-indigo-50 border-indigo-200 text-indigo-700'
-                              }`}>{label}</span>
+                              }`}>{method}</span>
                             );
                           })()}
                         </td>
                         <td className="px-6 py-4 max-w-xs truncate text-xs font-bold text-slate-500 uppercase" title={v.itemsResumen}>
                           {v.itemsResumen}
                         </td>
-                        <td className="px-6 py-4 text-right font-mono">
-                          {esDevuelto ? (
-                            <div className="flex flex-col items-end">
-                              <span className="text-rose-600 font-mono font-black text-base leading-none">S/ 0.00</span>
-                              <span className="text-slate-400 font-mono text-xs line-through block font-bold mt-1">
-                                S/ {(v.montoOriginal || v.subtotal || 0).toFixed(2)}
-                              </span>
+                        <td className="px-6 py-4 text-right font-mono font-black text-slate-900 text-base">
+                          {v.anulado ? (
+                            <div className="flex flex-col items-end leading-none">
+                              <span className="text-red-600 font-black">S/ 0.00</span>
+                              {v.montoOriginal != null && (
+                                <span className="line-through text-slate-400 font-bold text-xs mt-1">
+                                  S/ {v.montoOriginal.toFixed(2)}
+                                </span>
+                              )}
                             </div>
                           ) : (
-                            <span className="font-black text-slate-900 text-base">S/ {v.total.toFixed(2)}</span>
+                            `S/ ${(v.total ?? 0).toFixed(2)}`
                           )}
                         </td>
                         <td className="px-6 py-4 text-center">
                           <div className="flex items-center justify-center gap-2">
-                            <button
-                              onClick={() => reimprimirComprobante(v)}
-                              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-900 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
-                              title="Reimprimir Comprobante Susii 80mm"
-                            >
-                              <Printer className="w-3.5 h-3.5" /> Reimprimir
-                            </button>
-                            <button
-                              onClick={() => enviarPorWhatsApp(v)}
-                              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
-                              title="Enviar Comprobante por WhatsApp"
-                            >
-                              <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
-                                <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.003 5.324 5.328 0 11.859 0c3.161.001 6.136 1.23 8.375 3.466 2.238 2.237 3.467 5.21 3.466 8.373-.003 6.535-5.328 11.86-11.859 11.86-2.007-.001-3.98-.51-5.753-1.48L0 24zm6.59-4.846c1.6.95 3.188 1.449 4.725 1.45 5.269 0 9.557-4.287 9.559-9.556.001-2.553-.99-4.955-2.792-6.758-1.802-1.802-4.199-2.793-6.753-2.794-5.27 0-9.559 4.287-9.56 9.559-.001 1.625.434 3.208 1.262 4.622L1.51 21.054l4.137-1.9zm12.135-6.843c-.268-.134-1.583-.78-1.828-.87-.247-.09-.427-.134-.607.134-.18.267-.697.87-.852 1.047-.156.178-.311.201-.579.067-.268-.134-1.132-.418-2.156-1.332-.796-.71-1.335-1.586-1.492-1.853-.156-.268-.017-.413.117-.547.12-.12.268-.312.401-.468.134-.156.179-.268.268-.446.09-.178.045-.335-.022-.469-.067-.134-.607-1.462-.832-2.002-.22-.53-.442-.457-.607-.466-.156-.008-.337-.008-.518-.008-.18 0-.473.067-.72.337-.247.268-.943.922-.943 2.248s.965 2.604 1.1 2.784c.134.18 1.9 2.901 4.6 4.068.643.277 1.143.443 1.534.568.646.205 1.233.176 1.697.107.518-.077 1.583-.647 1.807-1.272.223-.624.223-1.159.156-1.272-.069-.112-.249-.18-.517-.313z" />
-                              </svg> WhatsApp
-                            </button>
+                            {v.anulado ? (
+                              <span className="px-3 py-1.5 bg-red-100 text-red-700 rounded-xl text-[10px] font-black uppercase border border-red-200 flex items-center justify-center gap-1">
+                                🚫 VENTA DEVUELTA (S/ 0.00)
+                              </span>
+                            ) : (
+                              <>
+                                <button
+                                  onClick={() => reimprimirComprobante(v)}
+                                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-900 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
+                                  title="Reimprimir Comprobante Susii 80mm"
+                                >
+                                  <Printer className="w-3.5 h-3.5" /> Reimprimir
+                                </button>
+                                <button
+                                  onClick={() => enviarPorWhatsApp(v)}
+                                  className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-sm active:scale-95"
+                                  title="Enviar Comprobante por WhatsApp"
+                                >
+                                  <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24">
+                                    <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.003 5.324 5.328 0 11.859 0c3.161.001 6.136 1.23 8.375 3.466 2.238 2.237 3.467 5.21 3.466 8.373-.003 6.535-5.328 11.86-11.859 11.86-2.007-.001-3.98-.51-5.753-1.48L0 24zm6.59-4.846c1.6.95 3.188 1.449 4.725 1.45 5.269 0 9.557-4.287 9.559-9.556.001-2.553-.99-4.955-2.792-6.758-1.802-1.802-4.199-2.793-6.753-2.794-5.27 0-9.559 4.287-9.56 9.559-.001 1.625.434 3.208 1.262 4.622L1.51 21.054l4.137-1.9zm12.135-6.843c-.268-.134-1.583-.78-1.828-.87-.247-.09-.427-.134-.607.134-.18.267-.697.87-.852 1.047-.156.178-.311.201-.579.067-.268-.134-1.132-.418-2.156-1.332-.796-.71-1.335-1.586-1.492-1.853-.156-.268-.017-.413.117-.547.12-.12.268-.312.401-.468.134-.156.179-.268.268-.446.09-.178.045-.335-.022-.469-.067-.134-.607-1.462-.832-2.002-.22-.53-.442-.457-.607-.466-.156-.008-.337-.008-.518-.008-.18 0-.473.067-.72.337-.247.268-.943.922-.943 2.248s.965 2.604 1.1 2.784c.134.18 1.9 2.901 4.6 4.068.643.277 1.143.443 1.534.568.646.205 1.233.176 1.697.107.518-.077 1.583-.647 1.807-1.272.223-.624.223-1.159.156-1.272-.069-.112-.249-.18-.517-.313z" />
+                                  </svg> WhatsApp
+                                </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
-                      );
-                    }) : (
+                    )) : (
                       <tr>
                         <td colSpan="7" className="text-center py-12 text-slate-400 font-bold uppercase text-xs">
                           No se encontraron comprobantes emitidos en este rango de fechas.
@@ -818,21 +820,80 @@ export default function ReportesPage() {
               <p className="text-[10px] text-slate-400 mt-0.5">Productos vendidos ordenados por cantidad. Incluye cálculo de equivalencias en pollos enteros.</p>
             </div>
             {(() => {
-              const calculateChickenTotal = () => {
-                let total = 0;
-                rotacion.forEach(item => {
-                  const equiv = getChickenEquivalency(item.nombre);
-                  total += item.cantidad * equiv;
-                });
-                return total;
-              };
+              // Calcular desde datos de rotación (frontend)
+              let totalEq = 0, enteros = 0, medios = 0, cuartos = 0, octavos = 0;
+              rotacion.forEach(item => {
+                const equiv = getChickenEquivalency(item.nombre);
+                const parcial = equiv * item.cantidad;
+                totalEq += parcial;
+                if (equiv === 1.0)   enteros += item.cantidad;
+                if (equiv === 0.5)   medios  += item.cantidad;
+                if (equiv === 0.25)  cuartos += item.cantidad;
+                if (equiv === 0.125) octavos += item.cantidad;
+              });
+              // Preferir datos del backend si están disponibles
+              if (reportePollos) {
+                enteros = reportePollos.totalEnteros;
+                medios  = reportePollos.totalMedios;
+                cuartos = reportePollos.totalCuartos;
+                octavos = reportePollos.totalOctavos;
+                totalEq = reportePollos.totalUnidadesEquivalentes;
+              }
+              const pollosEnterosFinal = Math.floor(totalEq);
+              const fraccionDecimal   = +(totalEq - pollosEnterosFinal).toFixed(3);
+              const fraccionLabel = fraccionDecimal === 0 ? ''
+                : fraccionDecimal >= 0.875 ? ' + 7/8'
+                : fraccionDecimal >= 0.750 ? ' + 3/4'
+                : fraccionDecimal >= 0.625 ? ' + 5/8'
+                : fraccionDecimal >= 0.500 ? ' + 1/2'
+                : fraccionDecimal >= 0.375 ? ' + 3/8'
+                : fraccionDecimal >= 0.250 ? ' + 1/4'
+                : ' + 1/8';
               return (
-                <span className="bg-amber-100 text-amber-900 text-xs font-black px-3.5 py-1.5 rounded-full uppercase tracking-wider">
-                  Total Pollos Enteros: {calculateChickenTotal().toFixed(2)}
-                </span>
+                <div className="flex flex-col items-end gap-1">
+                  <span className="bg-amber-100 text-amber-900 text-xs font-black px-3.5 py-1.5 rounded-full uppercase tracking-wider">
+                    🍗 Total: {pollosEnterosFinal}{fraccionLabel} entero{pollosEnterosFinal !== 1 ? 's' : ''} ({totalEq.toFixed(2)} eq.)
+                  </span>
+                  {(enteros > 0 || medios > 0 || cuartos > 0 || octavos > 0) && (
+                    <span className="text-[10px] text-amber-700 font-bold">
+                      {enteros > 0 ? `${enteros} entero${enteros !== 1 ? 's' : ''} · ` : ''}
+                      {medios > 0  ? `${medios} ½ · ` : ''}
+                      {cuartos > 0 ? `${cuartos} ¼ · ` : ''}
+                      {octavos > 0 ? `${octavos} ⅛` : ''}
+                    </span>
+                  )}
+                </div>
               );
             })()}
           </div>
+
+          {reportePollos && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 md:p-5 bg-slate-50/50 border-b border-slate-100">
+              <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">🍗 Stock Inicial Pollos</span>
+                <p className="text-xl font-mono font-black text-slate-800 mt-1">{reportePollos.stockInicial} Unids.</p>
+              </div>
+              <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">📊 Ventas Equivalentes (Fórmula)</span>
+                <p className="text-xl font-mono font-black text-emerald-600 mt-1">{reportePollos.totalUnidadesEquivalentes.toFixed(2)} Unids.</p>
+                <p className="text-[8px] font-bold text-slate-400 mt-0.5">Σ (1/8*0.125 + 1/4*0.25 + 1/2*0.5 + 1*1.0)</p>
+              </div>
+              <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">🔄 Porcentaje Rotación</span>
+                <p className="text-xl font-mono font-black text-blue-600 mt-1">{reportePollos.porcentajeRotacion}%</p>
+                <p className="text-[8px] font-bold text-slate-400 mt-0.5">Equivalente / Stock Inicial</p>
+              </div>
+              <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">📋 Desglose Fracciones</span>
+                <div className="grid grid-cols-2 gap-1 text-[10px] font-bold text-slate-650 mt-1">
+                  <span>1/8: {reportePollos.totalOctavos}</span>
+                  <span>1/4: {reportePollos.totalCuartos}</span>
+                  <span>1/2: {reportePollos.totalMedios}</span>
+                  <span>Enteros: {reportePollos.totalEnteros}</span>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="table-scroll">
             <table className="w-full text-left min-w-[500px]">
               <thead className="bg-white text-slate-450 text-[10px] font-black uppercase tracking-widest border-b border-slate-100">
@@ -947,111 +1008,257 @@ export default function ReportesPage() {
       )}
 
       {/* 4. CONSUMO DE PERSONAL (PLANILLA) */}
-      {activeTab === 'consumo' && (
-        <div className="space-y-6">
-          {/* Resumen por Persona */}
-          <div className="bg-white rounded-3xl border border-slate-200/60 shadow-sm p-6">
-            <h3 className="font-black text-slate-800 uppercase text-xs tracking-wider mb-4 flex items-center gap-2">
-              <Users className="w-4 h-4 text-violet-600" /> Acumulado para Planilla (Descuentos)
-            </h3>
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-4">
-              {(() => {
-                const consumos = ventas.filter(v => v.metodoPago === 'Consumo' || v.metodoPago === 'Cortesía');
-                const porMozo = {};
-                consumos.forEach(v => {
-                  const mName = v.mesero || v.nombreCliente || 'Sin Nombre';
-                  porMozo[mName] = (porMozo[mName] || 0) + (v.descuentoAplicado || v.total);
-                });
-                const entries = Object.entries(porMozo);
-                return entries.length > 0 ? entries.map(([mozo, total]) => (
-                  <div key={mozo} className="bg-violet-50/50 border border-violet-100 rounded-2xl p-4 text-center">
-                    <p className="text-[10px] text-slate-450 font-black uppercase truncate" title={mozo}>{mozo}</p>
-                    <p className="text-xl font-black text-violet-700 font-mono mt-1">S/ {total.toFixed(2)}</p>
-                  </div>
-                )) : (
-                  <div className="col-span-full py-4 text-center text-xs text-slate-400 font-bold">No hay acumulados en el periodo.</div>
-                );
-              })()}
-            </div>
-          </div>
+      {activeTab === 'consumo' && (() => {
+        const clienteMap = new Map(clientes.map(c => [c.id, c]));
 
-          {/* Listado detallado */}
-          <div className="bg-white rounded-3xl border border-slate-200/60 shadow-sm overflow-hidden mb-8">
-            <div className="p-4 md:p-5 border-b border-slate-100 bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-              <div>
-                <h2 className="font-black text-slate-700 uppercase text-xs tracking-wider flex items-center gap-2">
-                  <Users className="w-4 h-4 text-violet-600" /> Consumo Interno de Personal
-                </h2>
-                <p className="text-[10px] text-slate-400 mt-0.5">Historial completo de consumos registrados por el personal del restaurante.</p>
-              </div>
-              {(() => {
-                const totalC = ventas
-                  .filter(v => v.metodoPago === 'Consumo' || v.metodoPago === 'Cortesía')
-                  .reduce((s, v) => s + (v.descuentoAplicado || v.total), 0);
-                return (
-                  <span className="bg-violet-100 text-violet-850 text-xs font-black px-4 py-2 rounded-full uppercase tracking-wider">
-                    Total Consumos: S/ {totalC.toFixed(2)}
+        const listadoPlanilla = [];
+        const listadoComercial = [];
+
+        ventas.forEach(v => {
+          if (v.anulado || v.estadoPedido === 'Cancelado') return;
+
+          if (v.metodoPago === 'Consumo') {
+            listadoPlanilla.push({
+              id: v.id,
+              fecha: v.fecha,
+              createdAt: v.createdAt,
+              hora: v.hora,
+              nombre: v.nombreCliente || v.mesero || 'Consumo Personal',
+              documento: '',
+              itemsResumen: v.itemsResumen,
+              monto: v.descuentoAplicado || v.total,
+              rawVenta: v
+            });
+          } else {
+            const splits = v.creditoSplit || parsearCreditoSplit(v.ofertaDescripcion, v.clienteCreditoId, (v.montoCredito > 0 ? v.montoCredito : (v.metodoPago === 'Crédito' ? v.total : 0)));
+            if (splits.length > 0) {
+              splits.forEach(s => {
+                const cli = clienteMap.get(s.clienteId);
+                const esTrab = cli?.esTrabajador || false;
+                const nombre = cli?.nombre || s.nombre || v.nombreCliente || 'Cliente Crédito';
+                const doc = cli?.numDoc || cli?.documento || '';
+                const item = {
+                  id: v.id,
+                  fecha: v.fecha,
+                  createdAt: v.createdAt,
+                  hora: v.hora,
+                  nombre,
+                  documento: doc,
+                  itemsResumen: v.itemsResumen,
+                  monto: s.monto,
+                  rawVenta: v
+                };
+                if (esTrab) listadoPlanilla.push(item);
+                else listadoComercial.push(item);
+              });
+            } else if (v.metodoPago === 'Crédito') {
+              listadoComercial.push({
+                id: v.id,
+                fecha: v.fecha,
+                createdAt: v.createdAt,
+                hora: v.hora,
+                nombre: v.nombreCliente || 'Cliente Comercial',
+                documento: '',
+                itemsResumen: v.itemsResumen,
+                monto: v.total,
+                rawVenta: v
+              });
+            }
+          }
+        });
+
+        // Acumulados
+        const planillaPorColaborador = {};
+        listadoPlanilla.forEach(item => {
+          planillaPorColaborador[item.nombre] = (planillaPorColaborador[item.nombre] || 0) + item.monto;
+        });
+
+        const clientesPorComercial = {};
+        listadoComercial.forEach(item => {
+          const key = item.documento ? `${item.nombre} (${item.documento})` : item.nombre;
+          clientesPorComercial[key] = (clientesPorComercial[key] || 0) + item.monto;
+        });
+
+        const totalPlanilla = listadoPlanilla.reduce((sum, item) => sum + item.monto, 0);
+        const totalComercial = listadoComercial.reduce((sum, item) => sum + item.monto, 0);
+
+        return (
+          <div className="space-y-8">
+            {/* Sección 1: Resumen de Acumulados */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Tarjeta Planilla */}
+              <div className="bg-white rounded-3xl border border-slate-200/60 shadow-sm p-6 flex flex-col">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="font-black text-violet-750 uppercase text-xs tracking-wider flex items-center gap-2">
+                    <Users className="w-4 h-4 text-violet-600" /> Acumulado para Planilla (Interno)
+                  </h3>
+                  <span className="bg-violet-100 text-violet-850 text-[10px] font-black px-2.5 py-1 rounded-full">
+                    S/ {totalPlanilla.toFixed(2)}
                   </span>
-                );
-              })()}
+                </div>
+                <div className="grid grid-cols-2 gap-3 flex-1">
+                  {Object.entries(planillaPorColaborador).length > 0 ? (
+                    Object.entries(planillaPorColaborador).map(([nombre, total]) => (
+                      <div key={nombre} className="bg-violet-50/40 border border-violet-100/50 rounded-2xl p-3 text-center">
+                        <p className="text-[9px] text-slate-450 font-black uppercase truncate" title={nombre}>{nombre}</p>
+                        <p className="text-sm font-black text-violet-700 font-mono mt-0.5">S/ {total.toFixed(2)}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="col-span-full text-center py-6 text-slate-400 text-xs font-bold uppercase">Sin consumos de planilla en este periodo.</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Tarjeta Comercial */}
+              <div className="bg-white rounded-3xl border border-slate-200/60 shadow-sm p-6 flex flex-col">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="font-black text-teal-750 uppercase text-xs tracking-wider flex items-center gap-2">
+                    <Briefcase className="w-4 h-4 text-teal-650" /> Acumulado Créditos Comerciales
+                  </h3>
+                  <span className="bg-teal-100 text-teal-855 text-[10px] font-black px-2.5 py-1 rounded-full">
+                    S/ {totalComercial.toFixed(2)}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 flex-1">
+                  {Object.entries(clientesPorComercial).length > 0 ? (
+                    Object.entries(clientesPorComercial).map(([nombre, total]) => (
+                      <div key={nombre} className="bg-teal-50/40 border border-teal-100/50 rounded-2xl p-3 text-center">
+                        <p className="text-[9px] text-slate-450 font-black uppercase truncate" title={nombre}>{nombre}</p>
+                        <p className="text-sm font-black text-teal-750 font-mono mt-0.5">S/ {total.toFixed(2)}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="col-span-full text-center py-6 text-slate-400 text-xs font-bold uppercase">Sin créditos comerciales en este periodo.</p>
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="table-scroll">
-              <table className="w-full text-left min-w-[700px]">
-                <thead className="bg-white text-slate-400 text-[10px] font-black uppercase tracking-widest border-b border-slate-100">
-                  <tr>
-                    <th className="px-6 py-4">ID</th>
-                    <th className="px-6 py-4">Fecha / Hora</th>
-                    <th className="px-6 py-4">Colaborador / Personal</th>
-                    <th className="px-6 py-4">Detalle del Consumo</th>
-                    <th className="px-6 py-4 text-right">Total a Descontar</th>
-                    <th className="px-6 py-4 text-center">Acción</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50 text-sm bg-white font-bold text-slate-700">
-                  {(() => {
-                    const consumos = ventas.filter(v => v.metodoPago === 'Consumo' || v.metodoPago === 'Cortesía');
-                    return consumos.length > 0 ? consumos.map(v => (
-                      <tr key={v.id} className="hover:bg-violet-50/20 transition-colors">
-                        <td className="px-6 py-4 font-mono text-xs text-slate-900">#VT-{v.id}</td>
-                        <td className="px-6 py-4 font-mono">
-                          {v.fecha || new Date(v.createdAt).toLocaleDateString('es-PE')} · <span className="text-slate-400 text-xs">{v.hora}</span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="text-slate-900 font-bold uppercase">{v.mesero || v.nombreCliente || 'Sin Colaborador'}</span>
-                          {v.metodoPago === 'Cortesía' && <span className="ml-2 bg-amber-100 text-amber-800 text-[9px] px-1.5 py-0.5 rounded font-black uppercase">Cortesía</span>}
-                        </td>
-                        <td className="px-6 py-4 text-xs text-slate-500 uppercase max-w-xs truncate" title={v.itemsResumen}>{v.itemsResumen}</td>
-                        <td className="px-6 py-4 text-right font-mono font-black text-violet-700">S/ {(v.descuentoAplicado || v.total).toFixed(2)}</td>
-                        <td className="px-6 py-4 text-center">
-                          <button
-                            onClick={() => {
-                              // Clonamos la venta pero forzamos el texto de forma de pago interna para el ticket
-                              const printClone = {
-                                ...v,
-                                metodoPago: 'Consumo'
-                              };
-                              reimprimirComprobante(printClone);
-                            }}
-                            className="px-2.5 py-1.5 bg-slate-900 hover:bg-violet-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 mx-auto"
-                          >
-                            <Printer className="w-3 h-3" /> Ver Ticket
-                          </button>
+
+            {/* Listado A: Crédito Clientes (Comerciales) */}
+            <div className="bg-white rounded-3xl border border-slate-200/60 shadow-sm overflow-hidden">
+              <div className="p-4 md:p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                <div>
+                  <h2 className="font-black text-slate-700 uppercase text-xs tracking-wider flex items-center gap-2">
+                    <Briefcase className="w-4 h-4 text-teal-650" /> Cuentas por Cobrar · Crédito Clientes
+                  </h2>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Ventas financiadas a clientes de confianza con cuenta corriente comercial.</p>
+                </div>
+                <span className="bg-teal-100 text-teal-850 text-xs font-black px-4 py-2 rounded-full uppercase tracking-wider">
+                  Total Clientes: S/ {totalComercial.toFixed(2)}
+                </span>
+              </div>
+              <div className="table-scroll">
+                <table className="w-full text-left min-w-[700px]">
+                  <thead className="bg-white text-slate-400 text-[10px] font-black uppercase tracking-widest border-b border-slate-100">
+                    <tr>
+                      <th className="px-6 py-4">ID</th>
+                      <th className="px-6 py-4">Fecha / Hora</th>
+                      <th className="px-6 py-4">Cliente Comercial</th>
+                      <th className="px-6 py-4">Detalle Items</th>
+                      <th className="px-6 py-4 text-right">Monto Crédito</th>
+                      <th className="px-6 py-4 text-center">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50 text-sm bg-white font-bold text-slate-700">
+                    {listadoComercial.length > 0 ? listadoComercial.map((item, idx) => {
+                      return (
+                        <tr key={`${item.id}-${idx}`} className="hover:bg-teal-50/20 transition-colors">
+                          <td className="px-6 py-4 font-mono text-xs text-slate-900">#VT-{item.id}</td>
+                          <td className="px-6 py-4 font-mono">
+                            {item.fecha || new Date(item.createdAt).toLocaleDateString('es-PE')} · <span className="text-slate-400 text-xs">{item.hora}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-slate-900 font-bold uppercase">{item.nombre}</span>
+                            {item.documento && <span className="ml-2 bg-slate-100 text-slate-500 text-[9px] px-1.5 py-0.5 rounded font-mono font-bold">{item.documento}</span>}
+                          </td>
+                          <td className="px-6 py-4 text-xs text-slate-500 uppercase max-w-xs truncate" title={item.itemsResumen}>{item.itemsResumen}</td>
+                          <td className="px-6 py-4 text-right font-mono font-black text-teal-700">S/ {item.monto.toFixed(2)}</td>
+                          <td className="px-6 py-4 text-center">
+                            <button
+                              onClick={() => reimprimirComprobante(item.rawVenta)}
+                              className="px-2.5 py-1.5 bg-slate-900 hover:bg-teal-650 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 mx-auto"
+                            >
+                              <Printer className="w-3 h-3" /> Ver Ticket
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    }) : (
+                      <tr>
+                        <td colSpan="6" className="text-center py-12 text-slate-400 font-bold uppercase text-xs">
+                          No se registraron ventas a crédito comercial en este periodo.
                         </td>
                       </tr>
-                    )) : (
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Listado B: Consumo de Planilla / Personal */}
+            <div className="bg-white rounded-3xl border border-slate-200/60 shadow-sm overflow-hidden">
+              <div className="p-4 md:p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                <div>
+                  <h2 className="font-black text-slate-700 uppercase text-xs tracking-wider flex items-center gap-2">
+                    <Users className="w-4 h-4 text-violet-650" /> Descuentos Planilla · Consumo de Personal
+                  </h2>
+                  <p className="text-[10px] text-slate-400 mt-0.5">Historial completo de consumos registrados por colaboradores internos.</p>
+                </div>
+                <span className="bg-violet-100 text-violet-850 text-xs font-black px-4 py-2 rounded-full uppercase tracking-wider">
+                  Total Planilla: S/ {totalPlanilla.toFixed(2)}
+                </span>
+              </div>
+              <div className="table-scroll">
+                <table className="w-full text-left min-w-[700px]">
+                  <thead className="bg-white text-slate-450 text-[10px] font-black uppercase tracking-widest border-b border-slate-100">
+                    <tr>
+                      <th className="px-6 py-4">ID</th>
+                      <th className="px-6 py-4">Fecha / Hora</th>
+                      <th className="px-6 py-4">Colaborador / Personal</th>
+                      <th className="px-6 py-4">Detalle Items</th>
+                      <th className="px-6 py-4 text-right">Monto Descuento</th>
+                      <th className="px-6 py-4 text-center">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50 text-sm bg-white font-bold text-slate-700">
+                    {listadoPlanilla.length > 0 ? listadoPlanilla.map((item, idx) => {
+                      return (
+                        <tr key={`${item.id}-${idx}`} className="hover:bg-violet-50/20 transition-colors">
+                          <td className="px-6 py-4 font-mono text-xs text-slate-900">#VT-{item.id}</td>
+                          <td className="px-6 py-4 font-mono">
+                            {item.fecha || new Date(item.createdAt).toLocaleDateString('es-PE')} · <span className="text-slate-400 text-xs">{item.hora}</span>
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className="text-slate-900 font-bold uppercase">{item.nombre}</span>
+                            <span className="ml-2 bg-violet-100 text-violet-800 text-[9px] px-1.5 py-0.5 rounded font-black uppercase">Planilla</span>
+                          </td>
+                          <td className="px-6 py-4 text-xs text-slate-500 uppercase max-w-xs truncate" title={item.itemsResumen}>{item.itemsResumen}</td>
+                          <td className="px-6 py-4 text-right font-mono font-black text-violet-700">S/ {item.monto.toFixed(2)}</td>
+                          <td className="px-6 py-4 text-center">
+                            <button
+                              onClick={() => reimprimirComprobante(item.rawVenta)}
+                              className="px-2.5 py-1.5 bg-slate-900 hover:bg-violet-600 text-white rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1 mx-auto"
+                            >
+                              <Printer className="w-3 h-3" /> Ver Ticket
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    }) : (
                       <tr>
                         <td colSpan="6" className="text-center py-12 text-slate-400 font-bold uppercase text-xs">
                           No se registraron consumos de personal en este periodo.
                         </td>
                       </tr>
-                    );
-                  })()}
-                </tbody>
-              </table>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* 5. RENDIMIENTO MOZOS Y CANCELACIONES */}
       {activeTab === 'mozos' && (
@@ -1179,9 +1386,9 @@ export default function ReportesPage() {
             </div>
             
             <div id="comprobante-sunat-ticket-print" className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-white text-slate-900 font-mono text-xs leading-relaxed">
-              <div className="text-center font-bold" style={{ fontSize: '14px', marginBottom: '2px' }}>El Fogón Dorado</div>
+              <div className="text-center font-bold" style={{ fontSize: '14px', marginBottom: '2px' }}>Nuevo Fogón Dorado E.I.R.L.</div>
               <div className="text-center text-[10px] leading-tight mb-2">
-                Jr. Amalia Puga 821, Cajamarca<br />
+                Av. Hoyos Rubio Nro. 338, Pueblo Nuevo, Cajamarca<br />
                 R.U.C. N° 10710311191
               </div>
               
@@ -1264,6 +1471,18 @@ export default function ReportesPage() {
               <hr style={{ border: '0', borderTop: '1px dashed black', margin: '10px 0' }} />
               
               <div className="space-y-1 text-right font-bold" style={{ fontSize: '11px' }}>
+                {activeComprobante.descuentoAplicado > 0 && (
+                  <>
+                    <div className="flex justify-between text-slate-700">
+                      <span>IMPORTE BRUTO</span> 
+                      <span>S/ {(activeComprobante.total + activeComprobante.descuentoAplicado).toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-900">
+                      <span>{activeComprobante.ofertaDescripcion ? activeComprobante.ofertaDescripcion.toUpperCase() : 'DESCUENTO'}</span> 
+                      <span>- S/ {activeComprobante.descuentoAplicado.toFixed(2)}</span>
+                    </div>
+                  </>
+                )}
                 <div className="flex justify-between"><span>SUBTOTAL</span> <span>S/ {activeComprobante.subtotal.toFixed(2)}</span></div>
                 <div className="flex justify-between"><span>I.G.V (10.5%)</span> <span>S/ {activeComprobante.igv.toFixed(2)}</span></div>
                 <div className="flex justify-between" style={{ fontSize: '12px', fontWeight: '900' }}><span>TOTAL</span> <span>S/ {activeComprobante.total.toFixed(2)}</span></div>
@@ -1479,13 +1698,43 @@ export default function ReportesPage() {
                       <p className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Consumo Total de Pollos</p>
                       <p className="text-xl font-black font-mono text-amber-800 mt-1 font-sans">
                         {(() => {
-                          let total = 0;
-                          rotacion.forEach(item => {
-                            const equiv = getChickenEquivalency(item.nombre);
-                            total += item.cantidad * equiv;
-                          });
-                          return total.toFixed(2);
-                        })()} <span className="text-xs font-black">Und.</span>
+                          let totalEq = 0, enteros = 0, medios = 0, cuartos = 0, octavos = 0;
+                          if (reportePollos) {
+                            totalEq = reportePollos.totalUnidadesEquivalentes;
+                            enteros = reportePollos.totalEnteros;
+                            medios  = reportePollos.totalMedios;
+                            cuartos = reportePollos.totalCuartos;
+                            octavos = reportePollos.totalOctavos;
+                          } else {
+                            rotacion.forEach(item => {
+                              const equiv = getChickenEquivalency(item.nombre);
+                              totalEq += equiv * item.cantidad;
+                              if (equiv === 1.0)   enteros += item.cantidad;
+                              if (equiv === 0.5)   medios  += item.cantidad;
+                              if (equiv === 0.25)  cuartos += item.cantidad;
+                              if (equiv === 0.125) octavos += item.cantidad;
+                            });
+                          }
+                          const pollosEnterosFinal = Math.floor(totalEq);
+                          const fraccionDecimal   = +(totalEq - pollosEnterosFinal).toFixed(3);
+                          const fraccionLabel = fraccionDecimal === 0 ? ''
+                            : fraccionDecimal >= 0.875 ? ' + 7/8'
+                            : fraccionDecimal >= 0.750 ? ' + 3/4'
+                            : fraccionDecimal >= 0.625 ? ' + 5/8'
+                            : fraccionDecimal >= 0.500 ? ' + 1/2'
+                            : fraccionDecimal >= 0.375 ? ' + 3/8'
+                            : fraccionDecimal >= 0.250 ? ' + 1/4'
+                            : ' + 1/8';
+                          return (
+                            <>
+                              {pollosEnterosFinal}{fraccionLabel} <span className="text-xs font-black">ent.</span>
+                              <br/>
+                              <span className="text-[10px] font-bold text-amber-700">
+                                {[enteros > 0 ? `${enteros} entero${enteros!==1?'s':''}` : null, medios > 0 ? `${medios} ½` : null, cuartos > 0 ? `${cuartos} ¼` : null, octavos > 0 ? `${octavos} ⅛` : null].filter(Boolean).join(' · ')}
+                              </span>
+                            </>
+                          );
+                        })()}
                       </p>
                       <p className="text-[9px] text-amber-700/80 mt-2 leading-tight">Consolidado de equivalencias de pollo a la brasa vendido.</p>
                     </div>
@@ -1842,4 +2091,5 @@ export default function ReportesPage() {
     </section>
   );
 }
+
 

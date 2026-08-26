@@ -1,170 +1,283 @@
-// Configuración central del API
+// ================================================================
+// CONFIGURACIÓN CENTRALIZADA DE API — VT VALETEC
+// ================================================================
+
 const API_BASE = import.meta.env.VITE_API_URL || '';
+
+/**
+ * Cliente HTTP seguro con validación de cabeceras, manejo de errores de proxy (502/504)
+ * y protección contra parseo inválido de HTML.
+ */
+async function apiRequest(endpoint, options = {}) {
+  const url = `${API_BASE}${endpoint}`;
+  const defaultHeaders = {
+    'Accept': 'application/json',
+    ...(options.body ? { 'Content-Type': 'application/json' } : {})
+  };
+
+  const timeoutMs = options.timeoutMs || 10000;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: options.signal || controller.signal,
+      headers: {
+        ...defaultHeaders,
+        ...options.headers
+      }
+    });
+    clearTimeout(timeoutId);
+
+    const contentType = response.headers.get('content-type') || '';
+    const isJson = contentType.includes('application/json');
+
+    if (!response.ok) {
+      if (isJson) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Error HTTP ${response.status}: ${response.statusText}`);
+      } else {
+        if (response.status === 502) {
+          throw new Error('502 Bad Gateway: El servidor backend no está respondiendo o se encuentra en reinicio.');
+        }
+        if (response.status === 504) {
+          throw new Error('504 Gateway Timeout: El servidor tardó demasiado en responder.');
+        }
+        throw new Error(`Error ${response.status}: El servidor no devolvió una respuesta JSON válida.`);
+      }
+    }
+
+    if (!isJson) {
+      return null;
+    }
+
+    return response.json();
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      throw new Error(`Tiempo de espera agotado (${timeoutMs / 1000}s). Verifica la conexión Wi-Fi con el servidor.`);
+    }
+    throw err;
+  }
+}
 
 export const api = {
   // Mesas (salón)
-  getMesas: () => fetch(`${API_BASE}/api/mesas`).then(r => r.json()),
-  enviarACocina: (num, body) => fetch(`${API_BASE}/api/mesas/${num}/pedido`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }).then(r => r.json()),
-  unirMesa: (num, numeroMesaAUnir) => fetch(`${API_BASE}/api/mesas/${num}/unir`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ numeroMesaAUnir }),
-  }).then(r => r.json()),
-  separarMesas: (num) => fetch(`${API_BASE}/api/mesas/${num}/separar`, { method: 'POST' }).then(r => r.json()),
-  crearMesa: (body) => fetch(`${API_BASE}/api/mesas`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }).then(r => r.json()),
-  editarMesa: (numero, body) => fetch(`${API_BASE}/api/mesas/${numero}`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }).then(r => r.json()),
-  eliminarMesa: (numero) => fetch(`${API_BASE}/api/mesas/${numero}`, {
-    method: 'DELETE',
-  }).then(r => r.json()),
+  getMesas: () => apiRequest('/api/mesas'),
+  enviarACocina: (num, body) => apiRequest(`/api/mesas/${num}/pedido`, {
+    method: 'POST', body: JSON.stringify(body)
+  }),
+  unirMesa: (num, numeroMesaAUnir) => apiRequest(`/api/mesas/${num}/unir`, {
+    method: 'POST', body: JSON.stringify({ numeroMesaAUnir })
+  }),
+  separarMesas: (num) => apiRequest(`/api/mesas/${num}/separar`, { method: 'POST' }),
+  crearMesa: (body) => apiRequest('/api/mesas', {
+    method: 'POST', body: JSON.stringify(body)
+  }),
+  editarMesa: (numero, body) => apiRequest(`/api/mesas/${numero}`, {
+    method: 'PUT', body: JSON.stringify(body)
+  }),
+  eliminarMesa: (numero) => apiRequest(`/api/mesas/${numero}`, { method: 'DELETE' }),
 
   // Cocina (unificado: salón + delivery)
-  getPedidosCocina: () => fetch(`${API_BASE}/api/pedidos/cocina`).then(r => r.json()),
-  getPedidosBarra: () => fetch(`${API_BASE}/api/pedidos/barra`).then(r => r.json()),
-  prepararPedido: (id, seccion) => fetch(`${API_BASE}/api/pedidos/${id}/preparar`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ seccion }),
-  }).then(r => r.json()),
-  servirPedido: (id) => fetch(`${API_BASE}/api/pedidos/${id}/servir`, { method: 'PATCH' }).then(r => r.json()),
-  updateItemNotas: (itemId, notas) => fetch(`${API_BASE}/api/pedidos/items/${itemId}/notas`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ notas }),
-  }).then(r => r.json()),
-  prepararItem: (itemId) => fetch(`${API_BASE}/api/pedidos/items/${itemId}/preparar`, {
-    method: 'PATCH',
-  }).then(r => r.json()),
+  getPedidosCocina: () => apiRequest('/api/pedidos/cocina'),
+  getPedidosBarra: () => apiRequest('/api/pedidos/barra'),
+  prepararPedido: (id, seccion) => apiRequest(`/api/pedidos/${id}/preparar`, {
+    method: 'PATCH', body: JSON.stringify({ seccion })
+  }),
+  servirPedido: (id) => apiRequest(`/api/pedidos/${id}/servir`, { method: 'PATCH' }),
+  updateItemNotas: (itemId, notas) => apiRequest(`/api/pedidos/items/${itemId}/notas`, {
+    method: 'PATCH', body: JSON.stringify({ notas })
+  }),
+  prepararItem: (itemId) => apiRequest(`/api/pedidos/items/${itemId}/preparar`, { method: 'PATCH' }),
 
   // Ensaladas
-  getPedidosEnsaladas: () => fetch(`${API_BASE}/api/pedidos/ensaladas`).then(r => r.json()),
-  prepararEnsalada: (pedidoId) => fetch(`${API_BASE}/api/pedidos/${pedidoId}/ensalada-lista`, { method: 'PATCH' }).then(r => r.json()),
+  getPedidosEnsaladas: () => apiRequest('/api/pedidos/ensaladas'),
+  prepararEnsalada: (pedidoId) => apiRequest(`/api/pedidos/${pedidoId}/ensalada-lista`, { method: 'PATCH' }),
 
   // Cancelación de pedidos (mozo)
-  cancelarPedido: (id, body) => fetch(`${API_BASE}/api/pedidos/${id}/cancelar`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }).then(r => r.json()),
-  cancelarItemPedido: (id, body) => fetch(`${API_BASE}/api/pedidos/${id}/cancelar-item`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }).then(r => r.json()),
+  cancelarPedido: (id, body) => apiRequest(`/api/pedidos/${id}/cancelar`, {
+    method: 'PATCH', body: JSON.stringify(body)
+  }),
+  cancelarItemPedido: (id, body) => apiRequest(`/api/pedidos/${id}/cancelar-item`, {
+    method: 'PATCH', body: JSON.stringify(body)
+  }),
 
   // Alertas de cancelación para cocina
-  getCancelacionesCocina: () => fetch(`${API_BASE}/api/cocina/cancelaciones`).then(r => r.json()),
-  dismissCancelacionCocina: (id) => fetch(`${API_BASE}/api/cocina/cancelaciones/${id}`, { method: 'DELETE' }).then(r => r.json()),
+  getCancelacionesCocina: () => apiRequest('/api/cocina/cancelaciones'),
+  dismissCancelacionCocina: (id) => apiRequest(`/api/cocina/cancelaciones/${id}`, { method: 'DELETE' }),
 
   // Alertas de cancelación para barra
-  getCancelacionesBarra: () => fetch(`${API_BASE}/api/barra/cancelaciones`).then(r => r.json()),
-  dismissCancelacionBarra: (id) => fetch(`${API_BASE}/api/barra/cancelaciones/${id}`, { method: 'DELETE' }).then(r => r.json()),
-  entregarItem: (itemId) => fetch(`${API_BASE}/api/pedidos/items/${itemId}/entregar`, {
-    method: 'PATCH',
-  }).then(r => r.json()),
-  entregarTodoPedido: (pedidoId) => fetch(`${API_BASE}/api/pedidos/${pedidoId}/entregar-todo`, {
-    method: 'PATCH',
-  }).then(r => r.json()),
+  getCancelacionesBarra: () => apiRequest('/api/barra/cancelaciones'),
+  dismissCancelacionBarra: (id) => apiRequest(`/api/barra/cancelaciones/${id}`, { method: 'DELETE' }),
+  entregarItem: (itemId) => apiRequest(`/api/pedidos/items/${itemId}/entregar`, { method: 'PATCH' }),
+  entregarTodoPedido: (pedidoId) => apiRequest(`/api/pedidos/${pedidoId}/entregar-todo`, { method: 'PATCH' }),
 
   // Delivery / PedidosYa
-  crearPedidoLlevar: (body) => fetch(`${API_BASE}/api/pedidos/llevar`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }).then(r => r.json()),
-  getPedidosLlevar: () => fetch(`${API_BASE}/api/pedidos/llevar`).then(r => r.json()),
-  confirmarEntrega: (id) => fetch(`${API_BASE}/api/pedidos/${id}/entregar`, { method: 'PATCH' }).then(r => r.json()),
+  crearPedidoLlevar: (body) => apiRequest('/api/pedidos/llevar', {
+    method: 'POST', body: JSON.stringify(body)
+  }),
+  getPedidosLlevar: () => apiRequest('/api/pedidos/llevar'),
+  confirmarEntrega: (id) => apiRequest(`/api/pedidos/${id}/entregar`, { method: 'PATCH' }),
 
   // Productos
-  getProductos: () => fetch(`${API_BASE}/api/productos`).then(r => r.json()),
-  crearProducto: (body) => fetch(`${API_BASE}/api/productos`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }).then(r => r.json()),
-  editarProducto: (id, body) => fetch(`${API_BASE}/api/productos/${id}`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }).then(r => r.json()),
-  eliminarProducto: (id) => fetch(`${API_BASE}/api/productos/${id}`, { method: 'DELETE' }).then(r => r.json()),
+  getProductos: () => apiRequest('/api/productos'),
+  crearProducto: (body) => apiRequest('/api/productos', {
+    method: 'POST', body: JSON.stringify(body)
+  }),
+  editarProducto: (id, body) => apiRequest(`/api/productos/${id}`, {
+    method: 'PUT', body: JSON.stringify(body)
+  }),
+  eliminarProducto: (id) => apiRequest(`/api/productos/${id}`, { method: 'DELETE' }),
 
   // Usuarios
-  getUsuarios: () => fetch(`${API_BASE}/api/usuarios`).then(r => r.json()),
-  crearUsuario: (body) => fetch(`${API_BASE}/api/usuarios`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }).then(r => r.json()),
-  eliminarUsuario: (id) => fetch(`${API_BASE}/api/usuarios/${id}`, { method: 'DELETE' }).then(r => r.json()),
-  editarUsuario: (id, body) => fetch(`${API_BASE}/api/usuarios/${id}`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }).then(r => r.json()),
-  login: (pin) => fetch(`${API_BASE}/api/usuarios/login`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin }),
-  }).then(r => r.json()),
-  validateAuth: (pin) => fetch(`${API_BASE}/api/usuarios/validate-auth`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin }),
-  }).then(r => r.json()),
+  getUsuarios: () => apiRequest('/api/usuarios'),
+  crearUsuario: (body) => apiRequest('/api/usuarios', {
+    method: 'POST', body: JSON.stringify(body)
+  }),
+  eliminarUsuario: (id) => apiRequest(`/api/usuarios/${id}`, { method: 'DELETE' }),
+  editarUsuario: (id, body) => apiRequest(`/api/usuarios/${id}`, {
+    method: 'PUT', body: JSON.stringify(body)
+  }),
+  login: (pin) => apiRequest('/api/usuarios/login', {
+    method: 'POST', body: JSON.stringify({ pin })
+  }),
+  validateAuth: (pin) => apiRequest('/api/usuarios/validate-auth', {
+    method: 'POST', body: JSON.stringify({ pin })
+  }),
 
   // Ventas (acepta pedidoIds array)
-  cobrar: (body) => fetch(`${API_BASE}/api/ventas`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }).then(r => r.json()),
-  getResumenVentas: (desde = null) => fetch(`${API_BASE}/api/ventas/resumen${desde ? `?desde=${desde}` : ''}`).then(r => r.json()),
-  getHistorialVentas: (desde, hasta) => fetch(`${API_BASE}/api/ventas${desde && hasta ? `?desde=${desde}&hasta=${hasta}` : ''}`).then(r => r.json()),
-  cambiarMetodoPago: (ventaId, metodoPago, pin, montos = {}) => fetch(`${API_BASE}/api/ventas/${ventaId}/metodo-pago`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ metodoPago, pin, ...montos }),
-  }).then(r => r.json()),
-  cambiarTipoEntrega: (ventaId, body) => fetch(`${API_BASE}/api/ventas/${ventaId}/tipo-entrega`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }).then(r => r.json()),
-  anularVenta: (ventaId, body) => fetch(`${API_BASE}/api/ventas/${ventaId}/anular`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }).then(r => r.json()),
+  cobrar: (body) => apiRequest('/api/ventas', {
+    method: 'POST', body: JSON.stringify(body)
+  }),
+  getResumenVentas: (desde = null) => {
+    const qs = desde ? `?desde=${encodeURIComponent(desde)}` : '';
+    return apiRequest(`/api/ventas/resumen${qs}`);
+  },
+  getHistorialVentas: (desde, hasta) => {
+    const qs = (desde && hasta) ? `?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}` : '';
+    return apiRequest(`/api/ventas${qs}`);
+  },
+  cambiarMetodoPago: (ventaId, metodoPago, pin, montos = {}) => apiRequest(`/api/ventas/${ventaId}/metodo-pago`, {
+    method: 'PATCH', body: JSON.stringify({ metodoPago, pin, ...montos })
+  }),
+  cambiarTipoEntrega: (ventaId, body) => apiRequest(`/api/ventas/${ventaId}/tipo-entrega`, {
+    method: 'PATCH', body: JSON.stringify(body)
+  }),
 
   // Compras
-  getCompras: (desde, hasta) => fetch(`${API_BASE}/api/compras${desde && hasta ? `?desde=${desde}&hasta=${hasta}` : ''}`).then(r => r.json()),
-  crearCompra: (body) => fetch(`${API_BASE}/api/compras`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }).then(r => r.json()),
-  getComprasStats: () => fetch(`${API_BASE}/api/compras/stats`).then(r => r.json()),
-  sincronizarSunat: (body) => fetch(`${API_BASE}/api/compras/sincronizar-sunat`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }).then(r => r.json()),
-  actualizarCategoriaCompra: (id, categoria) => fetch(`${API_BASE}/api/compras/${id}/categoria`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ categoria }),
-  }).then(r => r.json()),
+  getCompras: (desde, hasta, extraParams = {}) => {
+    let params = {};
+    if (typeof desde === 'object' && desde !== null) {
+      params = desde;
+    } else {
+      if (desde) params.desde = desde;
+      if (hasta) params.hasta = hasta;
+      if (extraParams) params = { ...params, ...extraParams };
+    }
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== '') query.append(k, v);
+    });
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return apiRequest(`/api/compras${qs}`);
+  },
+  crearCompra: (body) => apiRequest('/api/compras', {
+    method: 'POST', body: JSON.stringify(body)
+  }),
+  editarCompra: (id, body) => apiRequest(`/api/compras/${id}`, {
+    method: 'PUT', body: JSON.stringify(body)
+  }),
+  eliminarCompra: (id) => apiRequest(`/api/compras/${id}`, {
+    method: 'DELETE'
+  }),
+  getComprasStats: () => apiRequest('/api/compras/stats'),
+  sincronizarSunat: (body) => apiRequest('/api/compras/sincronizar-sunat', {
+    method: 'POST', body: JSON.stringify(body)
+  }),
+  actualizarCategoriaCompra: (id, categoria) => apiRequest(`/api/compras/${id}/categoria`, {
+    method: 'PATCH', body: JSON.stringify({ categoria })
+  }),
 
   // Reportes
-  getReporteContable: (desde, hasta) => fetch(`${API_BASE}/api/reportes/contable${desde && hasta ? `?desde=${desde}&hasta=${hasta}` : ''}`).then(r => r.json()),
-  getCancelaciones: (desde, hasta) => fetch(`${API_BASE}/api/reportes/cancelaciones${desde && hasta ? `?desde=${desde}&hasta=${hasta}` : ''}`).then(r => r.json()),
-  getReporteMozos: (desde, hasta) => fetch(`${API_BASE}/api/reportes/mozos${desde && hasta ? `?desde=${desde}&hasta=${hasta}` : ''}`).then(r => r.json()),
+  getReporteContable: (desde, hasta) => {
+    const qs = (desde && hasta) ? `?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}` : '';
+    return apiRequest(`/api/reportes/contable${qs}`);
+  },
+  getCancelaciones: (desde, hasta) => {
+    const qs = (desde && hasta) ? `?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}` : '';
+    return apiRequest(`/api/reportes/cancelaciones${qs}`);
+  },
+  getReporteMozos: (desde, hasta) => {
+    const qs = (desde && hasta) ? `?desde=${encodeURIComponent(desde)}&hasta=${encodeURIComponent(hasta)}` : '';
+    return apiRequest(`/api/reportes/mozos${qs}`);
+  },
   getRotacion: (desde = null, hasta = null) => {
-    let url = `${API_BASE}/api/reportes/rotacion`;
     const params = [];
-    if (desde) params.push(`desde=${desde}`);
+    if (desde) params.push(`desde=${encodeURIComponent(desde)}`);
+    if (hasta) params.push(`hasta=${encodeURIComponent(hasta)}`);
+    const qs = params.length > 0 ? `?${params.join('&')}` : '';
+    return apiRequest(`/api/reportes/rotacion${qs}`);
+  },
+  getReportePollos: (desde = null, hasta = null) => {
+    const params = [];
+    if (desde) params.push(`desde=${encodeURIComponent(desde)}`);
     if (hasta) params.push(`hasta=${hasta}`);
-    if (params.length > 0) url += `?${params.join('&')}`;
-    return fetch(url).then(r => r.json());
+    const qs = params.length > 0 ? `?${params.join('&')}` : '';
+    return apiRequest(`/api/reportes/pollos${qs}`);
   },
 
   // Consulta DNI/RUC segura
-  consultarCliente: (doc) => fetch(`${API_BASE}/api/clientes/consulta/${doc}`).then(r => r.json()),
-  getEmpresa: () => fetch(`${API_BASE}/api/empresa`).then(r => r.json()),
+  consultarCliente: (doc) => apiRequest(`/api/clientes/consulta/${encodeURIComponent(doc)}`),
 
   // SUNAT / apisunat.pe — Diagnóstico y reintentos manuales
-  getNubefactPendientes: () => fetch(`${API_BASE}/api/sunat/pendientes`).then(r => r.json()),
-  reintentarNubefact: (id) => fetch(`${API_BASE}/api/sunat/reintentar/${id}`, { method: 'POST' }).then(r => r.json()),
-  reintentarTodosNubefact: () => fetch(`${API_BASE}/api/sunat/reintentar-todos`, { method: 'POST' }).then(r => r.json()),
+  getNubefactPendientes: () => apiRequest('/api/sunat/pendientes'),
+  reintentarNubefact: (id) => apiRequest(`/api/sunat/reintentar/${id}`, { method: 'POST' }),
+  reintentarTodosNubefact: () => apiRequest('/api/sunat/reintentar-todos', { method: 'POST' }),
 
   // Ofertas por Temporada
-  getOfertas: () => fetch(`${API_BASE}/api/ofertas`).then(r => r.json()),
-  crearOferta: (body) => fetch(`${API_BASE}/api/ofertas`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }).then(r => r.json()),
-  editarOferta: (id, body) => fetch(`${API_BASE}/api/ofertas/${id}`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }).then(r => r.json()),
-  activarOferta: (id, activa) => fetch(`${API_BASE}/api/ofertas/${id}/activar`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activa }),
-  }).then(r => r.json()),
-  eliminarOferta: (id) => fetch(`${API_BASE}/api/ofertas/${id}`, { method: 'DELETE' }).then(r => r.json()),
+  getOfertas: () => apiRequest('/api/ofertas'),
+  crearOferta: (body) => apiRequest('/api/ofertas', {
+    method: 'POST', body: JSON.stringify(body)
+  }),
+  editarOferta: (id, body) => apiRequest(`/api/ofertas/${id}`, {
+    method: 'PUT', body: JSON.stringify(body)
+  }),
+  activarOferta: (id, activa) => apiRequest(`/api/ofertas/${id}/activar`, {
+    method: 'PATCH', body: JSON.stringify({ activa })
+  }),
+  eliminarOferta: (id) => apiRequest(`/api/ofertas/${id}`, { method: 'DELETE' }),
 
   // Nuevas funciones
-  checkUserStatus: (id) => fetch(`${API_BASE}/api/usuarios/check/${id}`).then(r => r.json()),
-  actualizarDelivery: (id, body) => fetch(`${API_BASE}/api/pedidos/llevar/${id}`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }).then(r => r.json()),
-  getStatus: () => fetch(`${API_BASE}/api/status`).then(r => r.json()),
-  actualizarClienteVenta: (ventaId, body) => fetch(`${API_BASE}/api/ventas/${ventaId}/datos-cliente`, {
-    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }).then(r => r.json()),
+  checkUserStatus: (id) => apiRequest(`/api/usuarios/check/${id}`),
+  actualizarDelivery: (id, body) => apiRequest(`/api/pedidos/llevar/${id}`, {
+    method: 'PUT', body: JSON.stringify(body)
+  }),
+  getStatus: () => apiRequest('/api/status'),
+  actualizarClienteVenta: (ventaId, body) => apiRequest(`/api/ventas/${ventaId}/datos-cliente`, {
+    method: 'PATCH', body: JSON.stringify(body)
+  }),
+  anularVenta: (ventaId, pin, motivo) => apiRequest(`/api/ventas/${ventaId}/anular`, {
+    method: 'PATCH', body: JSON.stringify({ pin, motivo })
+  }),
+
+  // === MÓDULO DE CRÉDITOS ===
+  getClientes: () => apiRequest('/api/clientes'),
+  crearCliente: (body) => apiRequest('/api/clientes', {
+    method: 'POST', body: JSON.stringify(body)
+  }),
+  editarCliente: (id, body) => apiRequest(`/api/clientes/${id}`, {
+    method: 'PUT', body: JSON.stringify(body)
+  }),
+  eliminarCliente: (id) => apiRequest(`/api/clientes/${id}`, { method: 'DELETE' }),
+  getClienteDetalle: (id) => apiRequest(`/api/clientes/${id}`),
+  abonarCredito: (id, body) => apiRequest(`/api/clientes/${id}/abonar`, {
+    method: 'POST', body: JSON.stringify(body)
+  }),
+  getVentasCredito: () => apiRequest('/api/clientes/ventas/credito'),
+  getAbonos: (desde) => {
+    const qs = desde ? `?desde=${encodeURIComponent(desde)}` : '';
+    return apiRequest(`/api/abonos${qs}`);
+  },
 };

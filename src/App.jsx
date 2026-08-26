@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { UtensilsCrossed, LayoutDashboard, LayoutGrid, ChefHat, GlassWater, Calculator, PieChart, BookOpen, UsersRound, Menu, X, ChevronRight, LogOut, Lock, Salad } from 'lucide-react';
+import { UtensilsCrossed, LayoutDashboard, LayoutGrid, ChefHat, GlassWater, Calculator, PieChart, BookOpen, UsersRound, Menu, X, ChevronRight, LogOut, Lock, Salad, Wallet } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import logoUrl from './assets/logo.jpg';
 import { api } from './api';
@@ -13,6 +13,7 @@ import ReportesPage from './pages/ReportesPage';
 import CartaPage from './pages/CartaPage';
 import UsuariosPage from './pages/UsuariosPage';
 import EnsaladasPage from './pages/EnsaladasPage';
+import CreditosPage from './pages/CreditosPage';
 
 // === PROTECTED ROUTE NAVIGATION GUARD ===
 const ProtectedRoute = ({ children, permission, currentUser }) => {
@@ -160,6 +161,7 @@ const Sidebar = ({ isOpen, toggleSidebar, currentUser, onLogout }) => {
     { path: '/barra', icon: GlassWater, label: 'Barra / Bebidas', permission: 'Barra' },
     { path: '/ensaladas', icon: Salad, label: 'Ensaladas / Fríos', permission: 'Ensaladas' },
     { path: '/caja', icon: Calculator, label: 'Caja / Cobros', permission: 'Caja' },
+    { path: '/creditos', icon: Wallet, label: 'Créditos / Clientes', permission: 'Caja' },
     { path: '/compras', icon: BookOpen, label: 'Compras / Gastos', permission: 'Caja' },
     { path: '/reportes', icon: PieChart, label: 'Reportes (Contador)', permission: 'Reportes' },
     { path: '/carta', icon: BookOpen, label: 'Carta e Inventario', permission: 'Dashboard' },
@@ -278,15 +280,50 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const saved = localStorage.getItem('currentUser');
-    if (saved) {
-      try {
-        setCurrentUser(JSON.parse(saved));
-      } catch(e) {
-        localStorage.removeItem('currentUser');
+    const initSession = async () => {
+      const saved = localStorage.getItem('currentUser');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed && parsed.id) {
+            // Validar directamente contra el servidor
+            const status = await api.checkUserStatus(parsed.id);
+            if (!status || !status.exists || !status.activo) {
+              localStorage.removeItem('currentUser');
+              setCurrentUser(null);
+            } else if (parsed.pinSignature && status.pinSignature && parsed.pinSignature !== status.pinSignature) {
+              localStorage.removeItem('currentUser');
+              setCurrentUser(null);
+              alert('⚠️ La contraseña/PIN de tu cuenta ha sido modificada por el administrador. Por favor, inicia sesión con tu nuevo PIN.');
+            } else {
+              // Sincronizar roles y permisos actualizados de la BD
+              const updatedUser = {
+                ...parsed,
+                nombre: status.nombre || parsed.nombre,
+                rol: status.rol || parsed.rol,
+                permisos: status.permisos || parsed.permisos || [],
+                pinSignature: status.pinSignature || parsed.pinSignature,
+              };
+              setCurrentUser(updatedUser);
+              localStorage.setItem('currentUser', JSON.stringify(updatedUser));
+            }
+          } else {
+            localStorage.removeItem('currentUser');
+            setCurrentUser(null);
+          }
+        } catch (e) {
+          console.error('Error inicializando sesión:', e);
+          try {
+            setCurrentUser(JSON.parse(saved));
+          } catch (err) {
+            localStorage.removeItem('currentUser');
+          }
+        }
       }
-    }
-    setLoading(false);
+      setLoading(false);
+    };
+
+    initSession();
   }, []);
 
   const handleLoginSuccess = (user) => {
@@ -299,20 +336,34 @@ function App() {
     localStorage.removeItem('currentUser');
   };
 
-  // Validar si el usuario activo ha sido eliminado de la DB
+  // Polling de seguridad activo: detectar si el usuario fue eliminado, desactivado o si cambió su PIN/rol
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || !currentUser.id) return;
     const interval = setInterval(async () => {
       try {
         const res = await api.checkUserStatus(currentUser.id);
-        if (res && res.exists === false) {
+        if (!res || !res.exists || !res.activo) {
           handleLogout();
           alert('⚠️ Tu usuario ha sido eliminado o desactivado. Sesión cerrada.');
+        } else if (currentUser.pinSignature && res.pinSignature && currentUser.pinSignature !== res.pinSignature) {
+          handleLogout();
+          alert('⚠️ La contraseña/PIN de tu cuenta fue modificada por el administrador. Sesión cerrada.');
+        } else if (res.rol !== currentUser.rol || JSON.stringify(res.permisos) !== JSON.stringify(currentUser.permisos)) {
+          // Sincronizar en tiempo real los permisos modificados
+          const syncedUser = {
+            ...currentUser,
+            nombre: res.nombre,
+            rol: res.rol,
+            permisos: res.permisos,
+            pinSignature: res.pinSignature,
+          };
+          setCurrentUser(syncedUser);
+          localStorage.setItem('currentUser', JSON.stringify(syncedUser));
         }
       } catch (err) {
-        console.error('Error validando sesión:', err);
+        console.error('Error validando sesión periódica:', err);
       }
-    }, 10000);
+    }, 8000);
     return () => clearInterval(interval);
   }, [currentUser]);
 
@@ -337,6 +388,7 @@ function App() {
         <Route path="/barra" element={<Layout title="Monitor de Barra" currentUser={currentUser} onLogout={handleLogout}><ProtectedRoute permission="Barra" currentUser={currentUser}><BarraPage /></ProtectedRoute></Layout>} />
         <Route path="/ensaladas" element={<Layout title="Monitor de Ensaladas" currentUser={currentUser} onLogout={handleLogout}><ProtectedRoute permission="Ensaladas" currentUser={currentUser}><EnsaladasPage /></ProtectedRoute></Layout>} />
         <Route path="/caja" element={<Layout title="Punto de Cobro" currentUser={currentUser} onLogout={handleLogout}><ProtectedRoute permission="Caja" currentUser={currentUser}><CajaPage currentUser={currentUser} /></ProtectedRoute></Layout>} />
+        <Route path="/creditos" element={<Layout title="Módulo de Créditos" currentUser={currentUser} onLogout={handleLogout}><ProtectedRoute permission="Caja" currentUser={currentUser}><CreditosPage currentUser={currentUser} /></ProtectedRoute></Layout>} />
         <Route path="/compras" element={<Layout title="Registro de Compras" currentUser={currentUser} onLogout={handleLogout}><ProtectedRoute permission="Caja" currentUser={currentUser}><ComprasPage currentUser={currentUser} /></ProtectedRoute></Layout>} />
         <Route path="/reportes" element={<Layout title="Panel Contable" currentUser={currentUser} onLogout={handleLogout}><ProtectedRoute permission="Reportes" currentUser={currentUser}><ReportesPage /></ProtectedRoute></Layout>} />
         <Route path="/carta" element={<Layout title="Carta e Inventario" currentUser={currentUser} onLogout={handleLogout}><ProtectedRoute permission="Dashboard" currentUser={currentUser}><CartaPage currentUser={currentUser} /></ProtectedRoute></Layout>} />

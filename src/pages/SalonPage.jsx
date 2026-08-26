@@ -174,6 +174,7 @@ export default function SalonPage({ currentUser }) {
   // Modal de Autorización PIN
   const [authModal, setAuthModal] = useState({ open: false, pin: '', error: '', callback: null, promptText: '' });
   const [supervisorAprobador, setSupervisorAprobador] = useState(null);
+  const [precuentaMesa, setPrecuentaMesa] = useState(null);
 
   // Estados de Notificación en Tiempo Real
   const prevMesasRef = useRef([]);
@@ -443,21 +444,12 @@ export default function SalonPage({ currentUser }) {
       return baseSteps;
     }
     
-    // 4. Parrilladas y Piqueos Mix con Opciones de Bebidas (Búsqueda por Nombre del Plato)
-    const prodId = parseInt(prod ? prod.id : 0);
-    const normName = (prod && prod.nombre || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-
-    // 4.1. Personal: Piqueo Personal (1 Persona), Parrillada/Parrilla Mixta Personal
-    const isParrillaPersonal = normName.includes("piqueo personal") || normName.includes("parrillada mixta personal") || normName.includes("parrilla mixta personal");
-
-    // 4.2. 2 Personas: Piqueo 2 Personas, Parrillada/Parrilla Mixta 2 Personas
-    const isParrilla2P = normName.includes("piqueo 2 personas") || normName.includes("piqueo 2p") || normName.includes("parrillada mixta 2 personas") || normName.includes("parrilla mixta 2 personas") || normName.includes("parrillada mixta 2p") || normName.includes("parrilla mixta 2p");
-
-    // 4.3. 3 Personas / Piqueo Familiar: Parrillada/Parrilla Mixta 3 Personas, Piqueo Familiar
-    const isParrilla3P = normName.includes("parrillada mixta 3 personas") || normName.includes("parrilla mixta 3 personas") || normName.includes("parrillada mixta 3p") || normName.includes("parrilla mixta 3p") || normName.includes("piqueo familiar");
-
-    // 4.4. Grande / Fogón Dorado: Piqueo Fogón Dorado, Parrillada/Parrilla Fina Familiar, Parrillada/Parrilla Fogón Dorado
-    const isParrillaFina = normName.includes("piqueo fogon dorado") || normName.includes("parrillada fina familiar") || normName.includes("parrilla fina familiar") || normName.includes("parrillada fogon dorado") || normName.includes("parrilla fogon dorado");
+    // 4. Parrilladas y Piqueos Mix con Opciones de Bebidas
+    const prodId = parseInt(prod.id);
+    const isParrillaPersonal = prodId === 48 || prodId === 52;
+    const isParrilla2P = prodId === 49 || prodId === 53;
+    const isParrilla3P = prodId === 50 || prodId === 54;
+    const isParrillaFina = prodId === 51 || prodId === 55 || prodId === 56;
 
     if (isParrillaPersonal) {
       return [
@@ -477,9 +469,9 @@ export default function SalonPage({ currentUser }) {
           name: "Elige la Bebida",
           key: "bebida_personal",
           options: [
-            { label: "Copa de Vino Tabernero", value: "Copa de Vino Tabernero" },
-            { label: "Vaso de Chicha Morada", value: "Vaso de Chicha Morada" },
-            { label: "Gaseosa Chiki", value: "Gaseosa Chiki" }
+            { label: "Copa de Vino Tabernero", value: "Vino Tabernero (Copa)" },
+            { label: "Vaso de Chicha Morada", value: "Chicha Morada - Vaso" },
+            { label: "Gaseosa Chiki", value: "Gaseosa Mediana" }
           ]
         }
       ];
@@ -503,18 +495,27 @@ export default function SalonPage({ currentUser }) {
           name: "Elige Bebida 1 (Medio Litro)",
           key: "bebida_1",
           options: [
-            { label: "Sangría 1/2 Litro", value: "Sangría 1/2 Litro" },
-            { label: "Gaseosa 1/2 Litro", value: "Gaseosa 1/2 Litro" },
-            { label: "Chicha Morada 1/2 Litro", value: "Chicha Morada 1/2 Litro" }
+            { label: "Sangría 1/2 Litro", value: "Sangría Española o Hawaiana 1/2 Lt" },
+            { label: "Gaseosa 1/2 Litro", value: "Gaseosa 1/2 Lt" },
+            { label: "Chicha Morada 1/2 Litro", value: "Chicha Morada - 1/2 Lt" }
           ]
         },
         {
           name: "Elige Bebida 2 (Medio Litro)",
           key: "bebida_2",
           options: [
-            { label: "Sangría 1/2 Litro", value: "Sangría 1/2 Litro" },
-            { label: "Gaseosa 1/2 Litro", value: "Gaseosa 1/2 Litro" },
-            { label: "Chicha Morada 1/2 Litro", value: "Chicha Morada 1/2 Litro" }
+            { label: "Sangría 1/2 Litro", value: "Sangría Española o Hawaiana 1/2 Lt" },
+            { label: "Gaseosa 1/2 Litro", value: "Gaseosa 1/2 Lt" },
+            { label: "Chicha Morada 1/2 Litro", value: "Chicha Morada - 1/2 Lt" }
+          ]
+        },
+        {
+          name: "Bebida Adicional (Opcional - Un Litro)",
+          key: "bebida_adicional",
+          options: [
+            { label: "Gaseosa 1 Litro", value: "Gaseosa 1 Lt" },
+            { label: "Chicha Morada 1 Litro", value: "Chicha Morada - 1 Lt" },
+            { label: "Omitir (Sin Bebida Adicional)", value: "Sin Bebida Adicional" }
           ]
         }
       ];
@@ -538,10 +539,10 @@ export default function SalonPage({ currentUser }) {
           name: "Elige la Bebida",
           key: "bebida_familia",
           options: [
-            { label: "Vino Tabernero 750 ml", value: "Vino Tabernero 750 ml" },
-            { label: "Sangría 1 Litro", value: "Sangría 1 Litro" },
-            { label: "Gaseosa 1 Litro", value: "Gaseosa 1 Litro" },
-            { label: "Chicha Morada 1 Litro", value: "Chicha Morada 1 Litro" }
+            { label: "Vino Tabernero 750 ML", value: "Vino Tabernero (Botella)" },
+            { label: "Sangría 1 Litro", value: "Sangría Española o Hawaiana 1 Lt" },
+            { label: "Gaseosa 1 Litro", value: "Gaseosa 1 Lt" },
+            { label: "Chicha Morada 1 Litro", value: "Chicha Morada - 1 Lt" }
           ]
         }
       ];
@@ -565,11 +566,11 @@ export default function SalonPage({ currentUser }) {
           name: "Elige la Bebida",
           key: "bebida_familia",
           options: [
-            { label: "Vino Tabernero 750 ml", value: "Vino Tabernero 750 ml" },
-            { label: "Sangría 1 Litro", value: "Sangría 1 Litro" },
-            { label: "Gaseosa 1.5 Litros", value: "Gaseosa 1.5 Litros" },
-            { label: "Chicha Morada 1.5 Litros", value: "Chicha Morada 1.5 Litros" },
-            { label: "Gaseosa 3 Litros", value: "Gaseosa 3 Litros" }
+            { label: "Vino Tabernero 750 ML", value: "Vino Tabernero (Botella)" },
+            { label: "Sangría 1 Litro", value: "Sangría Española o Hawaiana 1 Lt" },
+            { label: "Gaseosa 1.5 Litros", value: "Gaseosa 1 1/2 Lt" },
+            { label: "Chicha Morada 1.5 Litros", value: "Chicha Morada - 1 1/2 Lt" },
+            { label: "Gaseosa 3 Litros", value: "Gaseosa 3 Lt" }
           ]
         }
       ];
@@ -627,8 +628,7 @@ export default function SalonPage({ currentUser }) {
       nameNorm.includes('1/4') || nameNorm.includes('cuarto') || 
       nameNorm.includes('1/8') || nameNorm.includes('octavo');
 
-    const targetSteps = getProductSteps(prod, {});
-    if (targetSteps && targetSteps.length > 0) {
+    if (hasComboConfig || isVirtualGroup || requiereGuarnicion || isMenuCategory || isPolloEntero || isMedioPollo || (prod.requiereGuarnicion && !isCuartoOOctavo)) {
       setSelectedProduct(prod);
       setCurrentStepIdx(0);
       setSelections({});
@@ -814,22 +814,44 @@ export default function SalonPage({ currentUser }) {
     }
   };
 
+  const submitAuthPin = async (pinToValidate) => {
+    const pin = (pinToValidate || authModal.pin || '').trim();
+    if (!pin) {
+      setAuthModal(prev => ({ ...prev, error: 'Ingresa el PIN de autorización.' }));
+      return;
+    }
+    try {
+      const res = await api.validateAuth(pin);
+      if (res.error) throw new Error(res.error);
+      
+      // Autorización exitosa! Ejecutar el callback
+      if (typeof authModal.callback === 'function') {
+        authModal.callback(res);
+      }
+      setAuthModal({ open: false, pin: '', error: '', callback: null, promptText: '' });
+    } catch (err) {
+      setAuthModal(prev => ({ ...prev, pin: '', error: err.message || 'PIN no autorizado o incorrecto' }));
+    }
+  };
+
   const handleAuthPinKeyPress = async (num) => {
-    let nuevoPin = authModal.pin + num;
-    if (nuevoPin.length < 4) {
-      setAuthModal(prev => ({ ...prev, pin: nuevoPin, error: '' }));
-    } else if (nuevoPin.length === 4) {
-      setAuthModal(prev => ({ ...prev, pin: nuevoPin, error: '' }));
+    const nuevoPin = (authModal.pin + num).slice(0, 6);
+    setAuthModal(prev => ({ ...prev, pin: nuevoPin, error: '' }));
+    if (nuevoPin.length === 4) {
       try {
         const res = await api.validateAuth(nuevoPin);
-        if (res.error) throw new Error(res.error);
-        
-        // Autorización exitosa! Ejecutar el callback
-        authModal.callback(res);
-        setAuthModal({ open: false, pin: '', error: '', callback: null, promptText: '' });
-      } catch (err) {
-        setAuthModal(prev => ({ ...prev, pin: '', error: err.message || 'Acceso Denegado' }));
+        if (!res.error) {
+          if (typeof authModal.callback === 'function') {
+            authModal.callback(res);
+          }
+          setAuthModal({ open: false, pin: '', error: '', callback: null, promptText: '' });
+          return;
+        }
+      } catch (e) {
+        // Permitir seguir ingresando si el PIN tiene más dígitos
       }
+    } else if (nuevoPin.length >= 6) {
+      submitAuthPin(nuevoPin);
     }
   };
 
@@ -863,8 +885,20 @@ export default function SalonPage({ currentUser }) {
         adicional: esAdicional,
       });
 
+      const mesaNum = mesaActual.num;
       setModalOpen(false);
       await fetchMesas();
+
+      // Feedback visual inmediato para el mozo
+      const toastId = Date.now() + Math.random();
+      setToasts(prev => [...prev, {
+        id: toastId,
+        mesa: mesaNum,
+        mensaje: `✅ ¡Comanda de Mesa ${mesaNum} enviada a Cocina!`
+      }]);
+      setTimeout(() => {
+        setToasts(prev => prev.filter(t => t.id !== toastId));
+      }, 4000);
     } catch (err) {
       alert('Error al enviar a cocina: ' + err.message);
     } finally {
@@ -1404,6 +1438,16 @@ export default function SalonPage({ currentUser }) {
                       )}
                     </div>
                   )}
+                  {mesaActual?.pedidoData && (
+                    <button
+                      type="button"
+                      onClick={() => setPrecuentaMesa(mesaActual)}
+                      className="w-full mb-3 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black uppercase text-[10px] md:text-xs tracking-widest rounded-xl transition-all shadow-md active:scale-95 flex items-center justify-center gap-2"
+                    >
+                      <Receipt className="w-4 h-4" />
+                      Imprimir Precuenta
+                    </button>
+                  )}
 
                   <div className="grid grid-cols-2 gap-2 md:gap-3">
                     {ticketActual.some(i => !i.yaEnviado) ? (
@@ -1491,7 +1535,7 @@ export default function SalonPage({ currentUser }) {
       {/* MODAL DE SELECCIÓN DE OPCIONES Y COMBOS (INTERACTIVO) */}
       {optionsModalOpen && selectedProduct && (() => {
         const steps = getProductSteps(selectedProduct, selections);
-        if (!steps || steps.length === 0 || !steps[currentStepIdx]) return null;
+        if (steps.length === 0) return null;
         
         const currentStep = steps[currentStepIdx];
         const esUltimoPaso = currentStepIdx === steps.length - 1;
@@ -1580,7 +1624,7 @@ export default function SalonPage({ currentUser }) {
               if (b1 && b2 && !b1.toLowerCase().includes('sin') && !b2.toLowerCase().includes('sin')) {
                 if (b1 === b2) {
                   // Agrupar dos de 1/2 Lt iguales en un solo litro para la Barra (ej: Gaseosa 1/2 Lt + Gaseosa 1/2 Lt => Gaseosa 1 Lt)
-                  const cleanName = b1.replace(" 1/2 Litro", " 1 Litro").replace(" 1/2 Lt", " 1 Lt").replace(" - 1/2 Lt", " - 1 Lt");
+                  const cleanName = b1.replace(" 1/2 Lt", " 1 Lt").replace(" - 1/2 Lt", " - 1 Lt");
                   notesArray.push(`Bebida: ${cleanName}`);
                 } else {
                   notesArray.push(`Bebida 1: ${b1}`);
@@ -1589,11 +1633,6 @@ export default function SalonPage({ currentUser }) {
               } else {
                 if (b1 && !b1.toLowerCase().includes('sin')) notesArray.push(`Bebida 1: ${b1}`);
                 if (b2 && !b2.toLowerCase().includes('sin')) notesArray.push(`Bebida 2: ${b2}`);
-              }
-
-              const cantEnsaladas = selections["cantidad_ensaladas"];
-              if (cantEnsaladas && !cantEnsaladas.toLowerCase().includes('sin ensalada')) {
-                notesArray.push(cantEnsaladas);
               }
               
               if (b_adic && b_adic !== "Sin Bebida Adicional") {
@@ -1780,62 +1819,92 @@ export default function SalonPage({ currentUser }) {
       {/* MODAL DE AUTORIZACIÓN POR PIN (SUPERVISOR) */}
       {authModal.open && (
         <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-[250] flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl flex flex-col items-center">
-            <div className="w-12 h-12 bg-amber-500 rounded-2xl flex items-center justify-center text-slate-900 mb-4 shadow-lg shadow-amber-500/20">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm p-6 shadow-2xl flex flex-col items-center animate-slide-up">
+            <div className="w-12 h-12 bg-amber-500 rounded-2xl flex items-center justify-center text-slate-900 mb-3 shadow-lg shadow-amber-500/20">
               <Lock className="w-6 h-6" />
             </div>
             <h3 className="font-black text-white text-base uppercase tracking-tight text-center leading-none">Autorización de Supervisor</h3>
             <p className="text-[10px] text-amber-400 font-mono uppercase tracking-widest text-center mt-2 font-bold bg-amber-500/10 px-3 py-1 rounded-md border border-amber-500/20">Acción: {authModal.promptText}</p>
 
-            {/* Dots */}
-            <div className="flex gap-4 my-6">
-              {[0, 1, 2, 3].map((idx) => (
-                <div 
-                  key={idx} 
-                  className={`w-3.5 h-3.5 rounded-full border-2 transition-all duration-150 ${
-                    authModal.pin.length > idx 
-                      ? 'bg-amber-500 border-amber-500 scale-110 shadow-lg shadow-amber-500/50' 
-                      : 'bg-transparent border-slate-700'
-                  }`}
-                ></div>
-              ))}
+            {/* Textbox Input para PIN con Teclado Físico y Móvil */}
+            <div className="w-full mt-4 mb-2">
+              <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 text-center mb-1.5">
+                Ingresa el PIN de Admin / Cajero:
+              </label>
+              <input
+                type="password"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                autoFocus
+                value={authModal.pin}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, '').slice(0, 6);
+                  setAuthModal(prev => ({ ...prev, pin: val, error: '' }));
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submitAuthPin(authModal.pin);
+                  if (e.key === 'Escape') setAuthModal({ open: false, pin: '', error: '', callback: null, promptText: '' });
+                }}
+                placeholder="••••"
+                className="w-full bg-slate-800 border-2 border-amber-500/40 focus:border-amber-500 rounded-2xl px-4 py-3 text-center text-2xl font-mono font-black tracking-[0.4em] text-white focus:outline-none focus:ring-4 focus:ring-amber-500/20 transition-all shadow-inner"
+              />
             </div>
 
             {/* Error */}
-            <div className="h-6 mb-3 text-center">
-              {authModal.error && <p className="text-xs text-rose-500 font-bold bg-rose-500/10 border border-rose-500/20 px-3 py-1 rounded-lg">{authModal.error}</p>}
+            <div className="min-h-[24px] mb-2 text-center w-full">
+              {authModal.error && (
+                <p className="text-xs text-rose-400 font-bold bg-rose-500/10 border border-rose-500/20 px-3 py-1 rounded-xl">
+                  {authModal.error}
+                </p>
+              )}
             </div>
 
             {/* Keypad */}
-            <div className="grid grid-cols-3 gap-2.5 w-full max-w-[240px] mb-4">
+            <div className="grid grid-cols-3 gap-2 w-full max-w-[240px] mb-4">
               {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((num) => (
                 <button 
                   key={num}
+                  type="button"
                   onClick={() => handleAuthPinKeyPress(num)}
-                  className="aspect-square bg-slate-800 hover:bg-slate-700 text-white font-black text-xl rounded-xl border border-slate-800 transition-colors active:scale-95 flex items-center justify-center"
+                  className="aspect-square bg-slate-800 hover:bg-slate-700 text-white font-black text-xl rounded-xl border border-slate-700 transition-all active:scale-95 flex items-center justify-center shadow-sm"
                 >
                   {num}
                 </button>
               ))}
               <button 
+                type="button"
                 onClick={() => setAuthModal({ open: false, pin: '', error: '', callback: null, promptText: '' })}
-                className="aspect-square bg-slate-800/30 hover:bg-slate-800/50 text-slate-400 font-bold text-[10px] rounded-xl transition-colors flex items-center justify-center uppercase tracking-wider"
+                className="aspect-square bg-slate-800/40 hover:bg-slate-800 text-slate-400 font-bold text-[10px] rounded-xl transition-all flex items-center justify-center uppercase tracking-wider border border-slate-800"
               >
-                Cancel
+                Cancelar
               </button>
               <button 
+                type="button"
                 onClick={() => handleAuthPinKeyPress(0)}
-                className="aspect-square bg-slate-800 hover:bg-slate-700 text-white font-black text-xl rounded-xl border border-slate-800 transition-colors active:scale-95 flex items-center justify-center"
+                className="aspect-square bg-slate-800 hover:bg-slate-700 text-white font-black text-xl rounded-xl border border-slate-700 transition-all active:scale-95 flex items-center justify-center shadow-sm"
               >
                 0
               </button>
               <button 
+                type="button"
                 onClick={handleAuthPinBackspace}
-                className="aspect-square bg-slate-800/30 hover:bg-slate-800/50 text-slate-400 font-bold text-[10px] rounded-xl transition-colors flex items-center justify-center uppercase tracking-wider"
+                className="aspect-square bg-slate-800/40 hover:bg-slate-800 text-slate-400 font-bold text-[10px] rounded-xl transition-all flex items-center justify-center uppercase tracking-wider border border-slate-800"
               >
-                Del
+                Borrar
               </button>
             </div>
+
+            {/* Botón Validar */}
+            <button
+              type="button"
+              onClick={() => submitAuthPin(authModal.pin)}
+              disabled={!authModal.pin}
+              className="w-full py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 font-black uppercase tracking-wider text-xs rounded-2xl transition-all active:scale-95 shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2"
+            >
+              <Check className="w-4 h-4" />
+              Validar y Autorizar
+            </button>
           </div>
         </div>
       )}
@@ -2139,7 +2208,102 @@ export default function SalonPage({ currentUser }) {
             </div>
           </div>
         </div>
-      )}
+       )}
+
+      {/* MODAL DE PRECUENTA DE MESA (IMPRESIÓN) */}
+      {precuentaMesa && (() => {
+        const items = precuentaMesa.pedidoData?.items || [];
+        const subtotal = items.reduce((s, i) => s + (i.cant * i.precio), 0);
+        const subtotalBase = parseFloat((subtotal / 1.105).toFixed(2));
+        const igv = parseFloat((subtotal - subtotalBase).toFixed(2));
+
+        return (
+          <div id="precuenta-print-container" className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl p-6 flex flex-col max-h-[90vh] overflow-y-auto custom-scrollbar animate-slide-up relative">
+              <div className="flex justify-between items-center mb-6 shrink-0">
+                <div className="flex items-center gap-2 text-indigo-700">
+                  <Receipt className="w-6 h-6 shrink-0" />
+                  <h3 className="font-black text-slate-900 text-lg uppercase tracking-tight leading-none">Precuenta Mesa {precuentaMesa.num}</h3>
+                </div>
+                <button onClick={() => setPrecuentaMesa(null)} className="text-slate-400 hover:text-slate-900 p-1 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all"><X className="w-5 h-5" /></button>
+              </div>
+
+              {/* Vista del ticket térmico */}
+              <div id="precuenta-ticket-print" className="bg-amber-50/70 border-2 border-dashed border-amber-200 rounded-2xl p-5 font-mono text-slate-800 text-xs shadow-sm mb-6 flex flex-col">
+                <div className="text-center border-b border-dashed border-slate-300 pb-3 mb-4">
+                  <h4 className="font-black text-sm text-slate-900 uppercase">NUEVO FOGÓN DORADO E.I.R.L.</h4>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">Av. Hoyos Rubio Nro. 338 · RUC: 10710311191</p>
+                  <p className="text-[10px] text-slate-400 font-bold mt-1">PRECUENTA DE CONSUMO (NO VALIDO COMO COMPROBANTE)</p>
+                </div>
+
+                <div className="space-y-1.5 border-b border-dashed border-slate-300 pb-3 mb-4 text-slate-600 font-bold">
+                  <div className="flex justify-between"><span>MESA:</span><span className="text-slate-900 text-sm font-black">{precuentaMesa.num}</span></div>
+                  <div className="flex justify-between"><span>FECHA:</span><span>{new Date().toLocaleDateString('es-PE')}</span></div>
+                  <div className="flex justify-between"><span>HORA:</span><span>{new Date().toLocaleTimeString('es-PE')}</span></div>
+                  <div className="flex justify-between"><span>MOZO:</span><span className="uppercase">{currentUser?.nombre || meseroGlobal}</span></div>
+                </div>
+
+                {/* Detalle de productos */}
+                <div className="border-b border-dashed border-slate-300 pb-3 mb-4">
+                  <div className="grid grid-cols-12 gap-1 font-black text-slate-900 text-[10px] uppercase tracking-wider mb-2">
+                    <span className="col-span-2 text-center">CANT</span>
+                    <span className="col-span-7">PRODUCTO</span>
+                    <span className="col-span-3 text-right">TOTAL</span>
+                  </div>
+                  <div className="space-y-2">
+                    {items.map((item, idx) => (
+                      <div key={idx} className="grid grid-cols-12 gap-1 text-[11px] font-bold text-slate-700 leading-tight">
+                        <span className="col-span-2 text-center font-black">{item.cant}</span>
+                        <span className="col-span-7 uppercase">{item.nombre}</span>
+                        <span className="col-span-3 text-right font-black">S/ {(item.cant * item.precio).toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Totales */}
+                <div className="space-y-1.5 font-bold text-slate-700 border-b border-dashed border-slate-300 pb-3 mb-3">
+                  <div className="flex justify-between">
+                    <span>OP. GRAVADA:</span>
+                    <span>S/ {subtotalBase.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>I.G.V. (10%):</span>
+                    <span>S/ {igv.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div className="flex justify-between items-center text-sm font-black text-slate-900 uppercase">
+                  <span>💰 TOTAL A PAGAR:</span>
+                  <span className="text-base text-indigo-700">S/ {subtotal.toFixed(2)}</span>
+                </div>
+
+                <div className="text-center text-[9px] text-slate-400 font-bold mt-6 border-t border-dashed border-slate-200 pt-3">
+                  Gracias por su preferencia · FOGÓN DORADO
+                </div>
+              </div>
+
+              {/* Acciones */}
+              <div className="grid grid-cols-2 gap-3 shrink-0">
+                <button
+                  onClick={() => setPrecuentaMesa(null)}
+                  className="py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black rounded-xl text-xs uppercase tracking-widest transition-colors"
+                >
+                  Cerrar
+                </button>
+                <button
+                  onClick={() => {
+                    window.print();
+                  }}
+                  className="py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl text-xs uppercase tracking-widest transition-all shadow-lg shadow-indigo-500/20"
+                >
+                  Imprimir Precuenta
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <style>{`
         .grid-mesas-dinamico {
@@ -2165,7 +2329,77 @@ export default function SalonPage({ currentUser }) {
           70% { transform: rotate(0); }
           100% { transform: rotate(0); }
         }
+
+        @page {
+          size: auto;
+          margin: 0mm;
+        }
+        @media print {
+          /* Ocultar elementos de navegación y fondos */
+          aside, header, #sidebar-menu, #sidebar-backdrop, button, nav, .shrink-0 {
+            display: none !important;
+          }
+          /* Ocultar el resto del contenido de la página excepto el modal a imprimir */
+          main > *:not(section),
+          section > *:not(#precuenta-print-container) {
+            display: none !important;
+          }
+          /* Garantizar que el body y contenedores no tengan alturas fijas o desbordamientos */
+          html, body, #root, main, section {
+            background: white !important;
+            color: black !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: visible !important;
+            height: auto !important;
+            width: auto !important;
+          }
+          /* Formatear el contenedor del ticket en 74mm en la esquina superior izquierda */
+          #precuenta-print-container {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 74mm !important;
+            height: auto !important;
+            display: block !important;
+            background: white !important;
+            z-index: 99999 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          #precuenta-print-container > div {
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            max-width: 74mm !important;
+            width: 74mm !important;
+            height: auto !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          #precuenta-print-container div.bg-slate-950, 
+          #precuenta-print-container div.shrink-0 {
+            display: none !important;
+          }
+          #precuenta-ticket-print {
+            width: 74mm !important;
+            padding: 6px !important;
+            margin: 0 !important;
+            font-family: 'Arial', 'Helvetica', sans-serif !important;
+            font-size: 11px !important;
+            line-height: 1.3 !important;
+            color: #000000 !important;
+            font-weight: 850 !important;
+          }
+          #precuenta-ticket-print * {
+            color: #000000 !important;
+            font-weight: 850 !important;
+          }
+          #precuenta-ticket-print div {
+            page-break-inside: avoid !important;
+          }
+        }
       `}</style>
     </section>
   );
 }
+

@@ -1,11 +1,16 @@
 const express = require('express');
 const cors = require('cors');
 const { PrismaClient } = require('@prisma/client');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
 const prisma = new PrismaClient();
 const LIMITE_CANCELACION_MS = 5 * 60 * 1000; // 5 minutos
+
+function generarPinSignature(pin, userId) {
+  return crypto.createHash('sha256').update(`${pin || ''}_${userId}_salt_fogon_auth`).digest('hex').substring(0, 16);
+}
 
 // ============================================================
 // STORE EN MEMORIA: ALERTAS DE CANCELACIÓN PARA COCINA Y BARRA
@@ -29,54 +34,91 @@ const BARRA_CATEGORIAS = [
   'Postres',
 ];
 
-function isBarraItem(item) {
-  if (!item) return false;
-  const cat = item.producto?.categoria || item.categoria || '';
-  if (BARRA_CATEGORIAS.includes(cat)) return true;
-  
-  const normName = (item.nombre || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  
-  // Platos de comida (ej: Chicharrón de Pollo/Pescado/Cerdo) van SIEMPRE a Cocina
-  if (normName.includes("chicharron")) return false;
+// Helper para parsear la distribución de crédito en ventas con múltiples clientes
+function parsearCreditoSplit(ofertaDescripcion, defaultClienteId, defaultMonto) {
+  if (ofertaDescripcion && typeof ofertaDescripcion === 'string') {
+    const match = ofertaDescripcion.match(/\[CREDITO_SPLIT:(.*?)\]/);
+    if (match && match[1]) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map(item => ({
+            clienteId: parseInt(item.clienteId || item.id),
+            nombre: item.nombre || '',
+            monto: parseFloat(item.monto || 0)
+          })).filter(item => !isNaN(item.clienteId) && item.monto > 0);
+        }
+      } catch (e) {
+        console.error('Error parseando CREDITO_SPLIT:', e);
+      }
+    }
+  }
+  const defId = parseInt(defaultClienteId);
+  const defM = parseFloat(defaultMonto || 0);
+  if (!isNaN(defId) && defId > 0 && defM > 0) {
+    return [{ clienteId: defId, monto: defM, nombre: '' }];
+  }
+  return [];
+}
 
-  return (
-    normName.includes("sangria") ||
-    normName.includes("vino") ||
-    normName.includes("chicha morada") ||
-    (normName.includes("chicha") && !normName.includes("chicharron")) ||
-    normName.includes("gaseosa") ||
-    normName.includes("chiki") ||
-    normName.includes("bebida") ||
-    normName.includes("cerveza") ||
-    normName.includes("coctel") ||
-    normName.includes("sour") ||
-    normName.includes("pisco") ||
-    normName.includes("mojito") ||
-    normName.includes("jugo") ||
-    normName.includes("limonada") ||
-    normName.includes("daiquiri") ||
-    normName.includes("chilcano")
-  );
+// Helper universal para desglosar y asegurar que el 100% de la venta real en Caja sume correctamente
+function obtenerMontosVenta(v) {
+  if (!v || v.anulado || v.pedido?.estado === 'Cancelado') {
+    return { efec: 0, tarj: 0, yape: 0 };
+  }
+  if (v.metodoPago === 'Cortesía' || v.metodoPago === 'Consumo' || v.metodoPago === 'PedidosYa' || v.metodoPago === 'Crédito') {
+    return { efec: 0, tarj: 0, yape: 0 };
+  }
+
+  let efec = parseFloat(v.montoEfectivo || 0);
+  let tarj = parseFloat(v.montoTarjeta || 0);
+  let yape = parseFloat(v.montoYape || 0);
+  const total = parseFloat(v.total || 0);
+
+  if (total <= 0) {
+    return { efec: 0, tarj: 0, yape: 0 };
+  }
+
+  if (v.metodoPago === 'Efectivo') {
+    return { efec: total, tarj: 0, yape: 0 };
+  }
+  if (v.metodoPago === 'Tarjeta') {
+    return { efec: 0, tarj: total, yape: 0 };
+  }
+  if (v.metodoPago === 'Yape') {
+    return { efec: 0, tarj: 0, yape: total };
+  }
+
+  // Para 'Mixto' u otros: si la suma difiere del total físico (restando la parte a crédito) o está incompleta
+  const totalFisico = total - parseFloat(v.montoCredito || 0);
+  const suma = efec + tarj + yape;
+  if (Math.abs(suma - totalFisico) > 0.01) {
+    if (suma === 0) {
+      efec = totalFisico; // Fallback seguro
+    } else if (totalFisico > suma) {
+      efec += (totalFisico - suma); // Cubrir remanente en efectivo para no perder recaudación
+    }
+  }
+
+  return { efec, tarj, yape };
 }
 
 // ============================================================
 // CONFIGURACIÓN DE PARRILLADAS Y PIQUEOS MIX (COMBO DECOMPOSITION)
 // ============================================================
 const MIX_PRODUCTS_DECOMPOSITION = {
-  // 1. Piqueo Personal (1 persona)
-  "piqueo_personal": {
+  // Piqueo Personal (1 persona) -> ID 48
+  48: {
     billingItemName: "Piqueo Personal (1 persona)",
-    altNames: ["Piqueo Personal (1 persona)", "Piqueo Personal", "Piqueo Personal 1 Persona"],
     components: [
       { nombre: "Pancita, Mollejas, Ubres (4 u c/u)" }
     ],
     reportingItems: [],
     hasDrinkSelections: true
   },
-  // 2. Piqueo 2 Personas
-  "piqueo_2p": {
+  // Piqueo 2 Personas -> ID 49
+  49: {
     billingItemName: "Piqueo 2 Personas",
-    altNames: ["Piqueo 2 Personas", "Piqueo 2P"],
     components: [
       { nombre: "Panceta, Mollejas, Ubre, Trompas (4 u c/u)" },
       { nombre: "Anticuchos y Brochetas (2 u c/u)" }
@@ -87,10 +129,9 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // 3. Piqueo Familiar
-  "piqueo_familiar": {
+  // Piqueo Familiar -> ID 50
+  50: {
     billingItemName: "Piqueo Familiar",
-    altNames: ["Piqueo Familiar"],
     components: [
       { nombre: "Panceta, Mollejas, Ubre, Trompas (8 u c/u)" },
       { nombre: "Chorizos, Anticuchos, Brochetas (2 u c/u)" }
@@ -100,10 +141,9 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // 4. Piqueo Fogón Dorado
-  "piqueo_fogon_dorado": {
+  // Piqueo Fogón Dorado -> ID 51
+  51: {
     billingItemName: "Piqueo Fogón Dorado",
-    altNames: ["Piqueo Fogón Dorado", "Piqueo Fogon Dorado"],
     components: [
       { nombre: "Panceta, Molleja, Ubre, Trompa (12 u c/u)" },
       { nombre: "Chorizo, Anticucho, Brocheta, Lengua (4 u c/u)" }
@@ -114,10 +154,9 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // 5. Parrillada Mixta Personal
-  "parrillada_mixta_personal": {
+  // Parrillada Mixta Personal -> ID 52
+  52: {
     billingItemName: "Parrillada Mixta Personal",
-    altNames: ["Parrillada Mixta Personal", "Parrilla Mixta Personal"],
     components: [
       { nombre: "Res y Pollo (150g c/u)" },
       { nombre: "Chorizo (1 u)" }
@@ -128,10 +167,9 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // 6. Parrillada Mixta 2 Personas
-  "parrillada_mixta_2p": {
+  // Parrillada Mixta 2 Personas -> ID 53
+  53: {
     billingItemName: "Parrillada Mixta 2 Personas",
-    altNames: ["Parrillada Mixta 2 Personas", "Parrilla Mixta 2 Personas", "Parrillada Mixta 2P", "Parrilla Mixta 2P"],
     components: [
       { nombre: "Res, Pollo y Cerdo (150g c/u)" },
       { nombre: "Mollejas y Ubre (4 u c/u)" },
@@ -142,10 +180,9 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // 7. Parrillada Mixta 3 Personas
-  "parrillada_mixta_3p": {
+  // Parrillada Mixta 3 Personas -> ID 54
+  54: {
     billingItemName: "Parrillada Mixta 3 Personas",
-    altNames: ["Parrillada Mixta 3 Personas", "Parrilla Mixta 3 Personas", "Parrillada Mixta 3P", "Parrilla Mixta 3P"],
     components: [
       { nombre: "Res, Pollo y Cerdo (150g c/u)" },
       { nombre: "Chorizos (3 u)" }
@@ -157,10 +194,9 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // 8. Parrillada Fina Familiar (5 personas)
-  "parrillada_fina_familiar": {
+  // Parrillada Fina Familiar (5 personas) -> ID 55
+  55: {
     billingItemName: "Parrillada Fina Familiar (5 personas)",
-    altNames: ["Parrillada Fina Familiar (5 personas)", "Parrillada Fina Familiar", "Parrilla Fina Familiar"],
     components: [
       { nombre: "Res, Pollo y Cerdo (300g c/u)" },
       { nombre: "Chorizos (4 u)" }
@@ -171,10 +207,9 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // 9. Parrillada Fogón Dorado (8-10 personas)
-  "parrillada_fogon_dorado": {
+  // Parrillada Fogón Dorado (8-10 personas) -> ID 56
+  56: {
     billingItemName: "Parrillada Fogón Dorado (8-10 personas)",
-    altNames: ["Parrillada Fogón Dorado (8-10 personas)", "Parrillada Fogón Dorado", "Parrilla Fogón Dorado", "Parrillada Fogon Dorado"],
     components: [
       { nombre: "Lomo Fino y Cerdo (300g c/u)" },
       { nombre: "Filete Pollo (300g)" },
@@ -193,35 +228,17 @@ const MIX_PRODUCTS_DECOMPOSITION = {
 function parseSelectionsFromNotes(notas) {
   const selections = {};
   if (!notas) return selections;
-
-  const addKV = (k, v) => {
-    if (!k || !v) return;
-    const cleanK = k.trim();
-    const cleanV = v.trim();
-    selections[cleanK] = cleanV;
-    const normK = cleanK.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-    selections[normK] = cleanV;
-  };
-
   const matches = notas.match(/\[([^\]:]+):\s*([^\]]+)\]/g);
   if (matches) {
     matches.forEach(m => {
       const parts = m.slice(1, -1).split(':');
       if (parts.length >= 2) {
-        addKV(parts[0], parts[1]);
+        const key = parts[0].trim();
+        const val = parts[1].trim();
+        selections[key] = val;
       }
     });
   }
-  
-  const partsDot = notas.split('·');
-  partsDot.forEach(p => {
-    const clean = p.replace(/[\[\]]/g, '').trim();
-    if (clean.includes(':')) {
-      const idx = clean.indexOf(':');
-      addKV(clean.substring(0, idx), clean.substring(idx + 1));
-    }
-  });
-
   return selections;
 }
 
@@ -229,42 +246,16 @@ async function expandPedidoItemsForDb(itemsList) {
   const expandedList = [];
   for (const i of itemsList) {
     const prodId = parseInt(i.productoId || i.id);
-    const prodNombre = (i.nombre || '').trim().toLowerCase();
-    const decomp = Object.values(MIX_PRODUCTS_DECOMPOSITION).find(d => 
-      d.billingItemName.toLowerCase() === prodNombre || 
-      (d.altNames && d.altNames.some(a => a.toLowerCase() === prodNombre))
-    );
-    
+    const decomp = MIX_PRODUCTS_DECOMPOSITION[prodId];
+
     if (decomp) {
       const parsedNotes = parseSelectionsFromNotes(i.notas);
-      const acompanamiento = 
-        parsedNotes["guarnicion"] || 
-        parsedNotes["acompanamiento"] || 
-        parsedNotes["Guarnición"] || 
-        parsedNotes["Acompañamiento"] || 
-        parsedNotes["guarnicion_menu"] || 
-        parsedNotes["Elige el Acompañamiento"] || 
-        "Sin Acompañamiento";
-      
+      const acompanamiento = parsedNotes["Acompañamiento"] || parsedNotes["Elige el Acompañamiento"] || parsedNotes["Elige la Guarnición"] || parsedNotes["guarnicion"] || "Sin Acompañamiento";
+
       const detailedGrillNotesArray = [
         `🥔 ACOMPAÑAMIENTO: ${acompanamiento}`
       ];
 
-      const cantidadEnsaladas = 
-        parsedNotes["cantidad_ensaladas"] || 
-        parsedNotes["cantidad ensaladas"] || 
-        parsedNotes["ensaladas"] ||
-        parsedNotes["Cantidad de Ensaladas"];
-
-      if (cantidadEnsaladas && !cantidadEnsaladas.toLowerCase().includes("sin ensalada")) {
-        detailedGrillNotesArray.push(`🥗 ENSALADAS: ${cantidadEnsaladas}`);
-      } else if (i.notas) {
-        const ensaladaMatch = i.notas.match(/(\d+\s*Ensaladas?)/i);
-        if (ensaladaMatch) {
-          detailedGrillNotesArray.push(`🥗 ENSALADAS: ${ensaladaMatch[1]}`);
-        }
-      }
-      
       if (i.notas && i.notas.includes("(Nota:")) {
         const customNoteMatch = i.notas.match(/\(Nota:\s*([^\)]+)\)/);
         if (customNoteMatch && customNoteMatch[1]) {
@@ -283,7 +274,7 @@ async function expandPedidoItemsForDb(itemsList) {
         entregado: false,
         notas: detailedGrillNotesArray.join(' · '),
       });
-      
+
       // 2. DETAILED GRILL COMPONENTS: created with precio: 0 and notes: null
       // so they are listed clean without repeating notes or S/ 0.00 price badges.
       if (decomp.components && decomp.components.length > 0) {
@@ -299,12 +290,12 @@ async function expandPedidoItemsForDb(itemsList) {
           });
         }
       }
-      
+
       // 3. DRINK SELECTIONS (historial: false, entregado: false -> Go to Barra!)
       if (decomp.hasDrinkSelections) {
         const selectedDrinkNames = [];
-        
-        // Buscar todas las posibles llaves de bebidas en parsedNotes
+
+        // Buscar todas las posibles llaves de bebidas en parsedNotes (tanto nuevos como de legado)
         const drinkKeys = [
           "Elige Bebida 1 (Medio Litro)",
           "Elige Bebida 2 (Medio Litro)",
@@ -312,78 +303,73 @@ async function expandPedidoItemsForDb(itemsList) {
           "Elige la Bebida",
           "Bebida",
           "Bebida 1",
-          "Bebida 2",
-          "bebida_personal",
-          "bebida_familia"
+          "Bebida 2"
         ];
-        
+
         for (const key of drinkKeys) {
           const val = parsedNotes[key];
-          if (val && !val.toLowerCase().includes("sin bebida") && !val.toLowerCase().includes("omitir")) {
+          if (val) {
             selectedDrinkNames.push(val);
           }
         }
-        
+
         // Agrupar si hay duplicados de bebidas de medio litro
         let groupedDrinks = [...selectedDrinkNames];
-        const is2P = prodNombre.includes("2 personas") || prodNombre.includes("2p");
-        if (is2P) {
+        if (prodId === 49 || prodId === 53) {
           // Si hay 2 bebidas del mismo tipo de medio litro, agruparlas en 1 litro
           if (selectedDrinkNames.length === 2 && selectedDrinkNames[0] === selectedDrinkNames[1]) {
             const drinkName = selectedDrinkNames[0];
             const name1Lt = drinkName
-              .replace("1/2 Litro", "1 Litro")
               .replace("1/2 Lt", "1 Lt")
+              .replace("1/2 Litro", "1 Litro")
               .replace("1/2 lt", "1 lt");
             groupedDrinks = [name1Lt];
           }
         }
-        
+
+        if (groupedDrinks.length === 0) {
+          if (prodId === 50 || prodId === 51) {
+            groupedDrinks.push("Vino Tabernero (Botella)");
+          }
+        }
+
         for (const drinkName of groupedDrinks) {
-          const norm = drinkName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-          let whereClause = null;
-          
-          if (norm.includes("chiki")) {
-            whereClause = { nombre: { contains: "Gaseosa Mediana", mode: 'insensitive' } };
-          } else if (norm.includes("copa") || norm.includes("tabernero")) {
-            whereClause = { nombre: { contains: "Vino Tabernero", mode: 'insensitive' } };
-          } else if (norm.includes("chicha")) {
-            if (norm.includes("vaso")) whereClause = { nombre: { contains: "Chicha Morada - Vaso", mode: 'insensitive' } };
-            else if (norm.includes("1.5") || norm.includes("1 1/2")) whereClause = { nombre: { contains: "Chicha Morada - 1 1/2", mode: 'insensitive' } };
-            else if (norm.includes("1/2") || norm.includes("medio")) whereClause = { nombre: { contains: "Chicha Morada - 1/2", mode: 'insensitive' } };
-            else whereClause = { nombre: { contains: "Chicha Morada - 1 Lt", mode: 'insensitive' } };
-          } else if (norm.includes("sangria")) {
-            if (norm.includes("1/2") || norm.includes("medio")) whereClause = { nombre: { contains: "Sangría Española o Hawaiana 1/2", mode: 'insensitive' } };
-            else whereClause = { nombre: { contains: "Sangría Española o Hawaiana 1", mode: 'insensitive' } };
-          } else if (norm.includes("gaseosa")) {
-            if (norm.includes("3")) whereClause = { nombre: { contains: "Gaseosa 3 Lt", mode: 'insensitive' } };
-            else if (norm.includes("1.5") || norm.includes("1 1/2")) whereClause = { nombre: { contains: "Gaseosa 1 1/2 Lt", mode: 'insensitive' } };
-            else if (norm.includes("1/2") || norm.includes("medio")) whereClause = { nombre: { contains: "Gaseosa 1/2 Lt", mode: 'insensitive' } };
-            else whereClause = { nombre: { contains: "Gaseosa 1 Lt", mode: 'insensitive' } };
+          let lookupName = drinkName;
+          let displayName = drinkName;
+
+          if (drinkName === "Gaseosa Chiki") {
+            lookupName = "Gaseosa Mediana";
+            displayName = "Gaseosa Chiki";
+          } else if (drinkName === "Vino Tabernero (Copa)") {
+            lookupName = "Vino Tabernero";
+            displayName = "Vino Tabernero (Copa)";
+          } else if (drinkName === "Vaso de Chicha Morada" || drinkName === "Chicha Morada - Vaso") {
+            lookupName = "Chicha Morada - Vaso";
+            displayName = "Chicha Morada - Vaso";
+          } else if (drinkName === "Sangría 1/2 Litro" || drinkName === "Sangria 1/2 Litro") {
+            lookupName = "Sangría Española o Hawaiana 1/2 Lt";
+            displayName = "Sangría Española o Hawaiana 1/2 Lt";
+          } else if (drinkName === "Sangría 1 Litro" || drinkName === "Sangria 1 Litro") {
+            lookupName = "Sangría Española o Hawaiana 1 Lt";
+            displayName = "Sangría Española o Hawaiana 1 Lt";
           }
 
-          let drinkProd = null;
-          if (whereClause) {
-            drinkProd = await prisma.producto.findFirst({ where: whereClause });
-          }
-          if (!drinkProd) {
-            drinkProd = await prisma.producto.findFirst({
-              where: { categoria: { in: BARRA_CATEGORIAS } }
-            });
-          }
-          
+          const drinkProd = await prisma.producto.findFirst({
+            where: { nombre: { contains: lookupName } }
+          });
+
           expandedList.push({
-            productoId: drinkProd ? drinkProd.id : 139,
-            nombre: drinkName,
+            productoId: drinkProd ? drinkProd.id : 213,
+            nombre: drinkProd ? drinkProd.nombre : displayName,
             precio: 0,
             cantidad: parseInt(i.cant || i.cantidad),
             historial: false, // Go to Barra!
             entregado: false,
-            notas: `(Incluido en ${i.nombre})`,
+            notas: null,
           });
         }
       }
-      
+
       // 4. FIXED REPORTING / BAR ITEMS (historial: true, entregado: true for reportOnly)
       if (decomp.reportingItems && decomp.reportingItems.length > 0) {
         for (const rep of decomp.reportingItems) {
@@ -514,12 +500,284 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-app.get('/api/empresa', (req, res) => {
-  res.json({
-    razonSocial: process.env.RAZON_SOCIAL || 'El Fogón Dorado',
-    ruc: process.env.RUC_EMPRESA || '10710311191',
-    direccion: process.env.DIRECCION_EMPRESA || 'Jr. Amalia Puga 821, Cajamarca',
-  });
+// ============================================================
+// CLIENTES CON CRÉDITO (MÓDULO DE CRÉDITOS)
+// ============================================================
+
+// GET /api/clientes → Listar todos los clientes con crédito
+app.get('/api/clientes', async (req, res) => {
+  try {
+    const clientes = await prisma.cliente.findMany({
+      where: { activo: true },
+      orderBy: { nombre: 'asc' },
+      include: { AbonosCredito: { orderBy: { creadoEn: 'desc' } } },
+    });
+
+    // Obtener todas las ventas con crédito o split de crédito
+    const ventasCredito = await prisma.venta.findMany({
+      where: {
+        OR: [
+          { clienteCreditoId: { not: null } },
+          { metodoPago: 'Crédito' },
+          { ofertaDescripcion: { contains: '[CREDITO_SPLIT:' } }
+        ],
+        anulado: false
+      },
+      select: { clienteCreditoId: true, montoCredito: true, total: true, ofertaDescripcion: true, metodoPago: true },
+    });
+
+    const consumoPorCliente = {};
+    ventasCredito.forEach(v => {
+      const splits = parsearCreditoSplit(v.ofertaDescripcion, v.clienteCreditoId, (v.montoCredito > 0 ? v.montoCredito : (v.metodoPago === 'Crédito' ? v.total : 0)));
+      if (splits.length > 0) {
+        splits.forEach(s => {
+          consumoPorCliente[s.clienteId] = (consumoPorCliente[s.clienteId] || 0) + s.monto;
+        });
+      } else if (v.clienteCreditoId) {
+        const monto = v.montoCredito > 0 ? v.montoCredito : (v.metodoPago === 'Crédito' ? v.total : 0);
+        consumoPorCliente[v.clienteCreditoId] = (consumoPorCliente[v.clienteCreditoId] || 0) + monto;
+      }
+    });
+
+    const formateados = clientes.map(c => {
+      const totalAbonado = c.AbonosCredito.reduce((s, a) => s + a.monto, 0);
+      const totalConsumido = consumoPorCliente[c.id] || 0;
+      const saldo = Math.max(0, totalConsumido - totalAbonado);
+      return {
+        id: c.id,
+        nombre: c.nombre,
+        tipoDoc: c.tipoDoc,
+        numDoc: c.numDoc,
+        telefono: c.telefono,
+        direccion: c.direccion,
+        esTrabajador: c.esTrabajador,
+        usuarioId: c.usuarioId,
+        activo: c.activo,
+        totalAbonado,
+        totalConsumido,
+        saldo,
+        abonos: c.AbonosCredito,
+      };
+    });
+
+    res.json(formateados);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/clientes → Crear un nuevo cliente
+app.post('/api/clientes', async (req, res) => {
+  try {
+    const { nombre, tipoDoc, numDoc, telefono, direccion, esTrabajador, usuarioId } = req.body;
+    if (!nombre) {
+      return res.status(400).json({ error: 'El nombre del cliente es obligatorio.' });
+    }
+    const cliente = await prisma.cliente.create({
+      data: {
+        nombre: String(nombre),
+        tipoDoc: tipoDoc ? String(tipoDoc) : 'DNI',
+        numDoc: numDoc ? String(numDoc) : null,
+        telefono: telefono ? String(telefono) : null,
+        direccion: direccion ? String(direccion) : null,
+        esTrabajador: Boolean(esTrabajador),
+        usuarioId: usuarioId ? parseInt(usuarioId) : null,
+      },
+    });
+    res.json(cliente);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/clientes/:id → Editar un cliente
+app.put('/api/clientes/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const data = {};
+    if (req.body.nombre !== undefined) data.nombre = String(req.body.nombre);
+    if (req.body.tipoDoc !== undefined) data.tipoDoc = String(req.body.tipoDoc);
+    if (req.body.numDoc !== undefined) data.numDoc = req.body.numDoc ? String(req.body.numDoc) : null;
+    if (req.body.telefono !== undefined) data.telefono = req.body.telefono ? String(req.body.telefono) : null;
+    if (req.body.direccion !== undefined) data.direccion = req.body.direccion ? String(req.body.direccion) : null;
+    if (req.body.esTrabajador !== undefined) data.esTrabajador = Boolean(req.body.esTrabajador);
+    if (req.body.usuarioId !== undefined) data.usuarioId = req.body.usuarioId ? parseInt(req.body.usuarioId) : null;
+    if (req.body.activo !== undefined) data.activo = Boolean(req.body.activo);
+
+    const cliente = await prisma.cliente.update({ where: { id }, data });
+    res.json(cliente);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/clientes/:id → Desactivar un cliente
+app.delete('/api/clientes/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    await prisma.cliente.update({ where: { id }, data: { activo: false } });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/clientes/:id → Ver detalle de cuenta corriente de un cliente
+app.get('/api/clientes/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const cliente = await prisma.cliente.findUnique({
+      where: { id },
+      include: { AbonosCredito: { orderBy: { creadoEn: 'desc' } } },
+    });
+    if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado.' });
+
+    // Buscar todas las ventas que contengan crédito para este cliente (directo o por split)
+    const ventasPosibles = await prisma.venta.findMany({
+      where: {
+        OR: [
+          { clienteCreditoId: id },
+          { ofertaDescripcion: { contains: '[CREDITO_SPLIT:' } }
+        ],
+        anulado: false
+      },
+      include: { pedido: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const ventasCredito = [];
+    ventasPosibles.forEach(v => {
+      const splits = parsearCreditoSplit(v.ofertaDescripcion, v.clienteCreditoId, (v.montoCredito > 0 ? v.montoCredito : (v.metodoPago === 'Crédito' ? v.total : 0)));
+      const miSplit = splits.find(s => s.clienteId === id);
+      if (miSplit) {
+        ventasCredito.push({
+          id: v.id,
+          fecha: v.createdAt.toISOString(),
+          total: v.total,
+          montoCredito: miSplit.monto,
+          estado: v.pedido?.estado || 'Pagado',
+          tipoComprobante: v.tipoComprobante,
+        });
+      } else if (v.clienteCreditoId === id && splits.length === 0) {
+        ventasCredito.push({
+          id: v.id,
+          fecha: v.createdAt.toISOString(),
+          total: v.total,
+          montoCredito: v.montoCredito > 0 ? v.montoCredito : (v.metodoPago === 'Crédito' ? v.total : 0),
+          estado: v.pedido?.estado || 'Pagado',
+          tipoComprobante: v.tipoComprobante,
+        });
+      }
+    });
+
+    const totalConsumido = ventasCredito.reduce((s, v) => s + v.montoCredito, 0);
+    const totalAbonado = cliente.AbonosCredito.reduce((s, a) => s + a.monto, 0);
+    const saldo = Math.max(0, totalConsumido - totalAbonado);
+
+    res.json({
+      ...cliente,
+      totalConsumido,
+      totalAbonado,
+      saldo,
+      ventasCredito,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/clientes/:id/abonar → Registrar un abono al crédito
+app.post('/api/clientes/:id/abonar', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { monto, metodoPago, montoEfectivo, montoTarjeta, montoYape, registradoPor, nota } = req.body;
+
+    if (!monto || parseFloat(monto) <= 0) {
+      return res.status(400).json({ error: 'El monto del abono debe ser mayor a 0.' });
+    }
+
+    const cliente = await prisma.cliente.findUnique({ where: { id } });
+    if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado.' });
+
+    const finalMetodo = metodoPago || 'Efectivo';
+    let finalEfectivo = 0, finalTarjeta = 0, finalYape = 0;
+    const montoNum = parseFloat(monto);
+
+    if (finalMetodo === 'Mixto') {
+      finalEfectivo = parseFloat(montoEfectivo || 0);
+      finalTarjeta = parseFloat(montoTarjeta || 0);
+      finalYape = parseFloat(montoYape || 0);
+    } else if (finalMetodo === 'Efectivo') {
+      finalEfectivo = montoNum;
+    } else if (finalMetodo === 'Tarjeta') {
+      finalTarjeta = montoNum;
+    } else if (finalMetodo === 'Yape') {
+      finalYape = montoNum;
+    }
+
+    const abono = await prisma.abonoCredito.create({
+      data: {
+        clienteId: id,
+        monto: montoNum,
+        metodoPago: finalMetodo,
+        montoEfectivo: finalEfectivo,
+        montoTarjeta: finalTarjeta,
+        montoYape: finalYape,
+        registradoPor: registradoPor ? String(registradoPor) : 'Cajero',
+        nota: nota ? String(nota) : null,
+      },
+    });
+
+    res.json({ ok: true, abono });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/abonos → Listar todos los abonos registrados (opcional: filtrar por fecha desde)
+app.get('/api/abonos', async (req, res) => {
+  const { desde } = req.query;
+  try {
+    const where = {};
+    if (desde) {
+      where.creadoEn = { gte: new Date(desde) };
+    }
+    const abonos = await prisma.abonoCredito.findMany({
+      where,
+      include: { cliente: true },
+      orderBy: { creadoEn: 'desc' },
+    });
+    res.json(abonos);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/clientes/ventas/credito → Historial de ventas a crédito (para reportes)
+app.get('/api/clientes/ventas/credito', async (req, res) => {
+  try {
+    const ventas = await prisma.venta.findMany({
+      where: { clienteCreditoId: { not: null }, anulado: false },
+      include: {
+        pedido: { include: { mesa: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const formateadas = ventas.map(v => ({
+      id: v.id,
+      clienteId: v.clienteCreditoId,
+      total: v.total,
+      montoCredito: v.montoCredito || 0,
+      nombreCliente: v.nombreCliente,
+      fecha: v.createdAt.toISOString(),
+      mesaNum: v.pedido?.mesa?.numero || null,
+    }));
+
+    res.json(formateadas);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ============================================================
@@ -528,7 +786,7 @@ app.get('/api/empresa', (req, res) => {
 app.get('/api/clientes/consulta/:doc', async (req, res) => {
   const { doc } = req.params;
   const cleaned = doc.trim();
-  
+
   // Fallbacks rápidos locales para pruebas rápidas en desarrollo
   if (cleaned === '20613857321') {
     return res.json({
@@ -552,13 +810,13 @@ app.get('/api/clientes/consulta/:doc', async (req, res) => {
     if (esRuc) {
       return res.json({
         razonSocial: `DISTRIBUIDORA Y RESTAURANTE ${cleaned} S.A.C. (MOCK)`,
-        direccion: `AV. LOS PIONEROS N° ${cleaned.substring(4,7)}, LIMA LIMA LOS OLIVOS`,
+        direccion: `AV. LOS PIONEROS N° ${cleaned.substring(4, 7)}, LIMA LIMA LOS OLIVOS`,
         tipo: 'Factura'
       });
     } else {
       return res.json({
         nombre: `CLIENTE DE PRUEBA ${cleaned} (MOCK)`,
-        direccion: `CALLE PRINCIPAL N° ${cleaned.substring(3,6)}`,
+        direccion: `CALLE PRINCIPAL N° ${cleaned.substring(3, 6)}`,
         tipo: 'Boleta'
       });
     }
@@ -566,10 +824,10 @@ app.get('/api/clientes/consulta/:doc', async (req, res) => {
 
   try {
     const isRUC = cleaned.length === 11;
-    const apiURL = isRUC 
-      ? `https://api.decolecta.com/v1/sunat/ruc?numero=${cleaned}` 
+    const apiURL = isRUC
+      ? `https://api.decolecta.com/v1/sunat/ruc?numero=${cleaned}`
       : `https://api.decolecta.com/v1/reniec/dni?numero=${cleaned}`;
-    
+
     const response = await fetch(apiURL, {
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -580,7 +838,7 @@ app.get('/api/clientes/consulta/:doc', async (req, res) => {
 
     if (response.ok) {
       const data = await response.json();
-      
+
       // Mapear al formato consistente que espera el frontend
       if (isRUC) {
         return res.json({
@@ -849,8 +1107,8 @@ app.post('/api/mesas/:num/pedido', async (req, res) => {
         where: { mesaId: mesa.id, estado: { in: ['Cocina', 'Servido'] } }
       });
       if (activeCount === 0) {
-        return res.status(400).json({ 
-          error: 'Esta mesa ya ha sido cobrada y liberada por caja. Por favor, vuelve a abrir la mesa antes de comandar.' 
+        return res.status(400).json({
+          error: 'Esta mesa ya ha sido cobrada y liberada por caja. Por favor, vuelve a abrir la mesa antes de comandar.'
         });
       }
     }
@@ -910,11 +1168,26 @@ app.get('/api/pedidos/cocina', async (req, res) => {
     const pedidos = await prisma.pedido.findMany({
       where: { estado: 'Cocina' },
       orderBy: { createdAt: 'asc' },
-      include: {
+      select: {
+        id: true,
+        tipoEntrega: true,
+        codigoPedidosYa: true,
+        mesero: true,
+        adicional: true,
+        estadoEnsalada: true,
+        createdAt: true,
+        mesa: { select: { numero: true } },
         items: {
-          include: { producto: { select: { categoria: true } } },
+          select: {
+            id: true,
+            nombre: true,
+            cantidad: true,
+            precio: true,
+            historial: true,
+            notas: true,
+            producto: { select: { categoria: true } },
+          },
         },
-        mesa: true,
       },
     });
 
@@ -931,7 +1204,7 @@ app.get('/api/pedidos/cocina', async (req, res) => {
       }),
       // Filtrar bebidas: cocina solo ve lo que prepara
       items: p.items
-        .filter(i => !i.historial && !isBarraItem(i))
+        .filter(i => !i.historial && !BARRA_CATEGORIAS.includes(i.producto?.categoria))
         .map(i => ({
           id: i.id,
           nombre: i.nombre,
@@ -954,11 +1227,24 @@ app.get('/api/pedidos/barra', async (req, res) => {
     const pedidos = await prisma.pedido.findMany({
       where: { estado: 'Cocina' },
       orderBy: { createdAt: 'asc' },
-      include: {
+      select: {
+        id: true,
+        tipoEntrega: true,
+        codigoPedidosYa: true,
+        mesero: true,
+        adicional: true,
+        createdAt: true,
+        mesa: { select: { numero: true } },
         items: {
-          include: { producto: { select: { categoria: true } } },
+          select: {
+            nombre: true,
+            cantidad: true,
+            precio: true,
+            historial: true,
+            notas: true,
+            producto: { select: { categoria: true } },
+          },
         },
-        mesa: true,
       },
     });
 
@@ -974,7 +1260,7 @@ app.get('/api/pedidos/barra', async (req, res) => {
       }),
       // Barra solo ve items de categorías de barra que no se han despachado (historial === false)
       items: p.items
-        .filter(i => !i.historial && isBarraItem(i))
+        .filter(i => !i.historial && BARRA_CATEGORIAS.includes(i.producto?.categoria))
         .map(i => ({
           nombre: i.nombre,
           cant: i.cantidad,
@@ -1022,11 +1308,9 @@ app.get('/api/pedidos/ensaladas', async (req, res) => {
       }),
       items: p.items
         .filter(i => {
-          const esBarra = isBarraItem(i);
+          const esBarra = BARRA_CATEGORIAS.includes(i.producto?.categoria);
           const llevaGuarnicion = i.producto?.requiereGuarnicion || (i.producto?.categoria && categoriasGuarnicion.includes(i.producto.categoria));
-          // Excluir componentes de descomposición de parrilla de precio 0 (para mostrar solo la parrillada principal y su conteo de ensaladas)
-          const esComponenteParrilla = i.precio === 0;
-          return llevaGuarnicion && !esBarra && !esComponenteParrilla;
+          return llevaGuarnicion && !esBarra;
         })
         .map(i => ({
           nombre: i.nombre,
@@ -1218,9 +1502,9 @@ app.patch('/api/pedidos/:id/entregar-todo', async (req, res) => {
     if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
 
     // Filtrar items que son de Cocina (no barra) y están listos (historial: true) pero no entregados
-    const itemsAActualizar = pedido.items.filter(i => 
-      i.historial && 
-      !i.entregado && 
+    const itemsAActualizar = pedido.items.filter(i =>
+      i.historial &&
+      !i.entregado &&
       !BARRA_CATEGORIAS.includes(i.producto?.categoria)
     );
 
@@ -1291,24 +1575,6 @@ app.patch('/api/pedidos/:id/cancelar', async (req, res) => {
       },
     });
 
-    // Si existía una Venta asociada a este pedido, anular su total
-    const ventaAsociada = await prisma.venta.findUnique({ where: { pedidoId: id } });
-    if (ventaAsociada) {
-      await prisma.venta.update({
-        where: { id: ventaAsociada.id },
-        data: {
-          total: 0,
-          igv: 0,
-          subtotal: 0,
-          montoEfectivo: 0,
-          montoTarjeta: 0,
-          montoYape: 0,
-          descuentoAplicado: 0,
-          estadoSunat: 'ANULADO',
-        }
-      });
-    }
-
     // Restaurar stock de productos limitados
     for (const item of pedido.items) {
       if (item.producto.tipoStock === 'limitado') {
@@ -1327,19 +1593,25 @@ app.patch('/api/pedidos/:id/cancelar', async (req, res) => {
       const activos = await prisma.pedido.findMany({
         where: { mesaId: pedido.mesaId, estado: { in: ['Cocina', 'Servido'] } },
       });
-      
+
       if (activos.length === 0) {
-        await prisma.mesa.update({
+        const mObj = await prisma.mesa.update({
           where: { id: pedido.mesaId },
           data: { estado: 'Libre' },
         });
+        if (mObj?.numero) {
+          await prisma.mesa.updateMany({
+            where: { estado: `Unida a Mesa ${mObj.numero}` },
+            data: { estado: 'Libre' },
+          });
+        }
         mesaLiberada = true;
       } else {
         // Si hay al menos un pedido activo en Cocina, la mesa debe quedarse en Cocina.
         // Si todos los activos están en Servido, pasa a Servido (Azul).
         const hayEnCocina = activos.some(p => p.estado === 'Cocina');
         nuevoEstadoMesa = hayEnCocina ? 'Cocina' : 'Servido';
-        
+
         await prisma.mesa.update({
           where: { id: pedido.mesaId },
           data: { estado: nuevoEstadoMesa },
@@ -1443,10 +1715,10 @@ app.patch('/api/pedidos/:id/cancelar-item', async (req, res) => {
       }
     }
 
-    const item = force 
+    const item = force
       ? pedido.items.find(i => String(i.productoId) === String(productoId))
       : pedido.items.find(i => String(i.productoId) === String(productoId) && !i.historial);
-      
+
     if (!item) return res.status(404).json({ error: 'El ítem seleccionado no se encuentra en la comanda activa.' });
 
     if (cantidadACancelar > item.cantidad) {
@@ -1561,36 +1833,42 @@ app.patch('/api/pedidos/:id/cancelar-item', async (req, res) => {
 // ============================================================
 
 app.post('/api/pedidos/llevar', async (req, res) => {
-  const { 
-    codigoPedidosYa, 
-    cajero, 
-    items, 
-    total, 
-    tipoDelivery, 
-    tipoComprobante, 
-    metodoPago, 
-    numDocumento, 
-    nombreCliente, 
-    clienteDireccion, 
+  const {
+    codigoPedidosYa,
+    cajero,
+    items,
+    total,
+    tipoDelivery,
+    tipoComprobante,
+    metodoPago,
+    numDocumento,
+    nombreCliente,
+    clienteDireccion,
     montoDelivery,
     telefono,
     montoEfectivo,
     montoTarjeta,
-    montoYape
+    montoYape,
+    montoCredito,
+    clienteCreditoId,
+    descuentoPorcentaje,
+    descuentoDescripcion
   } = req.body;
 
   try {
     const isTakeout = tipoDelivery === 'ParaLlevar';
     const isOwnDelivery = tipoDelivery === 'DeliveryPropio';
-    
+
     const shippingFee = parseFloat(montoDelivery || 0);
-    const itemsTotal = parseFloat(total);
     const finalMetodoPago = metodoPago || (tipoDelivery === 'PedidosYa' ? 'PedidosYa' : 'Efectivo');
-    
-    let grandTotal = itemsTotal + shippingFee;
-    if (finalMetodoPago === 'Cortesía') {
-      grandTotal = 0.00;
-    }
+
+    // Calcular monto bruto de items y aplicar descuento porcentual una sola vez
+    const itemsBruto = (items || []).reduce((acc, item) => acc + (parseFloat(item.precio || 0) * parseInt(item.cant || item.cantidad || 1)), 0);
+    const descPct = parseFloat(descuentoPorcentaje || 0);
+    const descuentoMonto = (descPct > 0 && itemsBruto > 0) ? parseFloat((itemsBruto * (descPct / 100)).toFixed(2)) : 0;
+    const totalConDescuento = Math.max(0, itemsBruto - descuentoMonto);
+    let grandTotal = finalMetodoPago === 'Cortesía' ? 0.00 : (totalConDescuento + shippingFee);
+    const descuentoFinal = finalMetodoPago === 'Cortesía' ? itemsBruto : descuentoMonto;
 
     const expandedItems = await expandPedidoItemsForDb(items);
     const finalEstadoEnsalada = await evaluarEstadoEnsalada(items);
@@ -1629,21 +1907,29 @@ app.post('/api/pedidos/llevar', async (req, res) => {
     // Registrar venta inmediatamente
     const subtotal = parseFloat((grandTotal / 1.105).toFixed(2));
     const igv = parseFloat((grandTotal - subtotal).toFixed(2));
-    
+
     let finalMontoEfectivo = 0;
     let finalMontoTarjeta = 0;
     let finalMontoYape = 0;
+    let finalMontoCredito = 0;
 
     if (finalMetodoPago === 'Mixto') {
       finalMontoEfectivo = parseFloat(montoEfectivo || 0);
       finalMontoTarjeta = parseFloat(montoTarjeta || 0);
       finalMontoYape = parseFloat(montoYape || 0);
+      finalMontoCredito = parseFloat(montoCredito || 0);
     } else if (finalMetodoPago === 'Efectivo') {
       finalMontoEfectivo = grandTotal;
     } else if (finalMetodoPago === 'Tarjeta') {
       finalMontoTarjeta = grandTotal;
     } else if (finalMetodoPago === 'Yape') {
       finalMontoYape = grandTotal;
+    } else if (finalMetodoPago === 'Crédito') {
+      finalMontoCredito = grandTotal;
+    }
+
+    if (finalMontoCredito > 0 && !clienteCreditoId) {
+      return res.status(400).json({ error: 'Debe seleccionar un cliente para registrar la venta a crédito.' });
     }
 
     // Asignar nombres por defecto segun tipo
@@ -1673,10 +1959,14 @@ app.post('/api/pedidos/llevar', async (req, res) => {
         montoEfectivo: finalMontoEfectivo,
         montoTarjeta: finalMontoTarjeta,
         montoYape: finalMontoYape,
+        montoCredito: finalMontoCredito,
+        clienteCreditoId: clienteCreditoId ? parseInt(clienteCreditoId) : null,
         estadoNubefact: initEstadoSunat,
         estadoSunat: initEstadoSunat,
         serie,
         numero,
+        descuentoAplicado: descuentoFinal,
+        ofertaDescripcion: descuentoFinal > 0 ? (descuentoDescripcion || `Descuento manual ${descPct}%`) : null,
       },
     });
 
@@ -1691,7 +1981,7 @@ app.post('/api/pedidos/llevar', async (req, res) => {
           precio: parseFloat(i.precio),
           cantidad: parseInt(i.cant),
         }));
-        
+
         // Agregar cargo por delivery al detalle de items si corresponde para que cuadre el total en SUNAT
         if (shippingFee > 0) {
           mappedItems.push({
@@ -1703,17 +1993,17 @@ app.post('/api/pedidos/llevar', async (req, res) => {
         }
 
         const response = await enviarAApisunat({ ...venta, clienteDireccion }, mappedItems);
-        
+
         const mappedData = {
           serie: venta.serie,
           numero: venta.numero,
           key: response.payload?.hash || '',
           enlace_del_pdf: response.payload?.pdf?.ticket || response.payload?.pdf?.a4 || '',
-          cadena_para_codigo_qr: `${process.env.RUC_EMPRESA || '10710311191'}|${venta.tipoComprobante === 'Factura' ? '01' : '03'}|${venta.serie}|${String(venta.numero).padStart(4, '0')}|${venta.igv.toFixed(2)}|${venta.total.toFixed(2)}|${new Intl.DateTimeFormat('es-PE', {timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit'}).format(new Date(venta.createdAt))}|${venta.tipoComprobante === 'Factura' ? '6' : (venta.numDocumento?.length === 8 ? '1' : '0')}|${venta.numDocumento || '00000000'}|${response.payload?.hash || ''}`
+          cadena_para_codigo_qr: `${process.env.RUC_EMPRESA || '10710311191'}|${venta.tipoComprobante === 'Factura' ? '01' : '03'}|${venta.serie}|${String(venta.numero).padStart(4, '0')}|${venta.igv.toFixed(2)}|${venta.total.toFixed(2)}|${new Intl.DateTimeFormat('es-PE', { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(venta.createdAt))}|${venta.tipoComprobante === 'Factura' ? '6' : (venta.numDocumento?.length === 8 ? '1' : '0')}|${venta.numDocumento || '00000000'}|${response.payload?.hash || ''}`
         };
 
         const strAceptado = `ACEPTADO:${JSON.stringify(mappedData)}`;
-        
+
         venta = await prisma.venta.update({
           where: { id: venta.id },
           data: {
@@ -1729,10 +2019,10 @@ app.post('/api/pedidos/llevar', async (req, res) => {
       }
     }
 
-    res.json({ 
-      ok: true, 
-      pedidoId: pedido.id, 
-      serie: venta.serie, 
+    res.json({
+      ok: true,
+      pedidoId: pedido.id,
+      serie: venta.serie,
       numero: venta.numero,
       contingencia: false,
       estadoNubefact: venta.estadoNubefact,
@@ -1749,7 +2039,7 @@ app.get('/api/pedidos/llevar', async (req, res) => {
     const pedidos = await prisma.pedido.findMany({
       where: { tipoEntrega: { in: ['llevar', 'delivery'] }, estado: { in: ['Cocina', 'Servido'] } },
       orderBy: { createdAt: 'asc' },
-      include: { 
+      include: {
         items: true,
         Venta: true
       },
@@ -1765,12 +2055,12 @@ app.get('/api/pedidos/llevar', async (req, res) => {
         hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima',
       }),
       // Excluir items expandidos con precio 0 para evitar duplicidad al modificar en el frontend
-      items: p.items.filter(i => i.precio > 0).map(i => ({ 
-        id: String(i.productoId), 
-        nombre: i.nombre, 
-        cant: i.cantidad, 
-        precio: i.precio, 
-        notas: i.notas 
+      items: p.items.filter(i => i.precio > 0).map(i => ({
+        id: String(i.productoId),
+        nombre: i.nombre,
+        cant: i.cantidad,
+        precio: i.precio,
+        notas: i.notas
       })),
       ventaData: p.Venta ? {
         id: p.Venta.id,
@@ -1793,12 +2083,12 @@ app.get('/api/pedidos/llevar', async (req, res) => {
 // PUT /api/pedidos/llevar/:id → Modificar un pedido de llevar/delivery activo
 app.put('/api/pedidos/llevar/:id', async (req, res) => {
   const id = parseInt(req.params.id);
-  const { 
-    codigoPedidosYa, 
-    cajero, 
-    items, 
-    total, 
-    tipoDelivery, 
+  const {
+    codigoPedidosYa,
+    cajero,
+    items,
+    total,
+    tipoDelivery,
     montoDelivery,
     telefono,
     nombreCliente,
@@ -1807,21 +2097,27 @@ app.put('/api/pedidos/llevar/:id', async (req, res) => {
     numDocumento,
     montoEfectivo,
     montoTarjeta,
-    montoYape
+    montoYape,
+    montoCredito,
+    clienteCreditoId,
+    descuentoPorcentaje,
+    descuentoDescripcion
   } = req.body;
 
   try {
     const isTakeout = tipoDelivery === 'ParaLlevar';
     const isOwnDelivery = tipoDelivery === 'DeliveryPropio';
-    
+
     const shippingFee = parseFloat(montoDelivery || 0);
-    const itemsTotal = parseFloat(total);
     const finalMetodoPago = metodoPago || (tipoDelivery === 'PedidosYa' ? 'PedidosYa' : 'Efectivo');
-    
-    let grandTotal = itemsTotal + shippingFee;
-    if (finalMetodoPago === 'Cortesía') {
-      grandTotal = 0.00;
-    }
+
+    // Calcular monto bruto de items y aplicar descuento porcentual una sola vez
+    const itemsBruto = (items || []).reduce((acc, item) => acc + (parseFloat(item.precio || 0) * parseInt(item.cant || item.cantidad || 1)), 0);
+    const descPct = parseFloat(descuentoPorcentaje || 0);
+    const descuentoMonto = (descPct > 0 && itemsBruto > 0) ? parseFloat((itemsBruto * (descPct / 100)).toFixed(2)) : 0;
+    const totalConDescuento = Math.max(0, itemsBruto - descuentoMonto);
+    let grandTotal = finalMetodoPago === 'Cortesía' ? 0.00 : (totalConDescuento + shippingFee);
+    const descuentoFinal = finalMetodoPago === 'Cortesía' ? itemsBruto : descuentoMonto;
 
     const expandedItems = await expandPedidoItemsForDb(items);
     const finalEstadoEnsalada = await evaluarEstadoEnsalada(items);
@@ -1900,17 +2196,25 @@ app.put('/api/pedidos/llevar/:id', async (req, res) => {
       let finalMontoEfectivo = 0;
       let finalMontoTarjeta = 0;
       let finalMontoYape = 0;
+      let finalMontoCredito = 0;
 
       if (finalMetodoPago === 'Mixto') {
         finalMontoEfectivo = parseFloat(montoEfectivo || 0);
         finalMontoTarjeta = parseFloat(montoTarjeta || 0);
         finalMontoYape = parseFloat(montoYape || 0);
+        finalMontoCredito = parseFloat(montoCredito || 0);
       } else if (finalMetodoPago === 'Efectivo') {
         finalMontoEfectivo = grandTotal;
       } else if (finalMetodoPago === 'Tarjeta') {
         finalMontoTarjeta = grandTotal;
       } else if (finalMetodoPago === 'Yape') {
         finalMontoYape = grandTotal;
+      } else if (finalMetodoPago === 'Crédito') {
+        finalMontoCredito = grandTotal;
+      }
+
+      if (finalMontoCredito > 0 && !clienteCreditoId) {
+        throw new Error('Debe seleccionar un cliente para registrar la venta a crédito.');
       }
 
       let finalNombreCliente = nombreCliente;
@@ -1930,7 +2234,11 @@ app.put('/api/pedidos/llevar/:id', async (req, res) => {
           metodoPago: finalMetodoPago,
           montoEfectivo: finalMontoEfectivo,
           montoTarjeta: finalMontoTarjeta,
-          montoYape: finalMontoYape
+          montoYape: finalMontoYape,
+          montoCredito: finalMontoCredito,
+          clienteCreditoId: clienteCreditoId ? parseInt(clienteCreditoId) : null,
+          descuentoAplicado: descuentoFinal,
+          ofertaDescripcion: descuentoFinal > 0 ? (descuentoDescripcion || `Descuento manual ${descPct}%`) : null
         }
       });
     });
@@ -1979,10 +2287,12 @@ app.get('/api/productos', async (req, res) => {
           { fechaInicio: { lte: ahora } }
         ],
         AND: [
-          { OR: [
-            { fechaFin: null },
-            { fechaFin: { gte: ahora } }
-          ]}
+          {
+            OR: [
+              { fechaFin: null },
+              { fechaFin: { gte: ahora } }
+            ]
+          }
         ]
       }
     });
@@ -1997,8 +2307,8 @@ app.get('/api/productos', async (req, res) => {
         } else {
           precioOferta = parseFloat((p.precio - oferta.valorDescuento).toFixed(2));
         }
-        return { 
-          ...p, 
+        return {
+          ...p,
           precioOferta: Math.max(0, precioOferta),
           ofertaNombre: oferta.nombre,
           ofertaTipo: oferta.tipoDescuento,
@@ -2259,6 +2569,7 @@ app.post('/api/usuarios/login', async (req, res) => {
       return res.status(401).json({ error: 'PIN incorrecto. Inténtalo de nuevo.' });
     }
     const { pin: userPin, ...safeUser } = user;
+    safeUser.pinSignature = generarPinSignature(user.pin, user.id);
     res.json({ ok: true, user: safeUser });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2295,7 +2606,15 @@ app.get('/api/usuarios/check/:id', async (req, res) => {
     if (!user || !user.activo) {
       return res.json({ exists: false });
     }
-    res.json({ exists: true, activo: user.activo });
+    res.json({
+      exists: true,
+      activo: user.activo,
+      id: user.id,
+      nombre: user.nombre,
+      rol: user.rol,
+      permisos: user.permisos,
+      pinSignature: generarPinSignature(user.pin, user.id)
+    });
   } catch (err) {
     res.json({ exists: false, error: err.message });
   }
@@ -2330,95 +2649,12 @@ app.delete('/api/usuarios/:id', async (req, res) => {
 // CAJA / VENTAS
 // ============================================================
 
-// PATCH /api/ventas/:ventaId/anular → Anular/Devolver una venta ya cobrada/entregada
-app.patch('/api/ventas/:ventaId/anular', async (req, res) => {
-  const ventaId = parseInt(req.params.ventaId);
-  const { pin, motivo, canceladoPor } = req.body;
-
-  try {
-    if (!pin) {
-      return res.status(400).json({ error: 'El PIN de autorización es obligatorio.' });
-    }
-    const usuario = await prisma.usuario.findFirst({
-      where: { pin: String(pin), activo: true }
-    });
-    if (!usuario) {
-      return res.status(401).json({ error: 'PIN incorrecto o usuario no autorizado.' });
-    }
-
-    const venta = await prisma.venta.findUnique({
-      where: { id: ventaId },
-      include: {
-        pedido: {
-          include: { items: { include: { producto: true } } }
-        }
-      }
-    });
-
-    if (!venta) {
-      return res.status(404).json({ error: 'Venta no encontrada.' });
-    }
-
-    if (venta.pedido?.estado === 'Cancelado' || venta.estadoSunat === 'ANULADO') {
-      return res.status(400).json({ error: 'Esta venta ya ha sido devuelta / anulada anteriormente.' });
-    }
-
-    const autorizador = canceladoPor || usuario.nombre;
-    const motivoTexto = motivo || 'Devolución de pedido por cliente';
-
-    // 1. Actualizar el pedido
-    if (venta.pedidoId) {
-      await prisma.pedido.update({
-        where: { id: venta.pedidoId },
-        data: {
-          estado: 'Cancelado',
-          canceladoPor: autorizador,
-          motivoCancela: motivoTexto,
-          canceladoEn: new Date(),
-        }
-      });
-    }
-
-    // 2. Actualizar la venta (total a 0, estadoSunat = ANULADO)
-    await prisma.venta.update({
-      where: { id: ventaId },
-      data: {
-        total: 0,
-        igv: 0,
-        subtotal: 0,
-        montoEfectivo: 0,
-        montoTarjeta: 0,
-        montoYape: 0,
-        descuentoAplicado: 0,
-        estadoSunat: 'ANULADO',
-      }
-    });
-
-    // 3. Devolver stock si los productos tienen tipoStock limitado
-    if (venta.pedido?.items) {
-      for (const item of venta.pedido.items) {
-        if (item.producto?.tipoStock === 'limitado') {
-          await prisma.producto.update({
-            where: { id: item.productoId },
-            data: { stock: { increment: item.cantidad } }
-          });
-        }
-      }
-    }
-
-    res.json({ ok: true, mensaje: 'Venta devuelta y anulada correctamente.', ventaId });
-  } catch (err) {
-    console.error('Error al anular venta:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // PATCH /api/ventas/:ventaId/metodo-pago → Corregir método de pago (requiere PIN Administrador)
 app.patch('/api/ventas/:ventaId/metodo-pago', async (req, res) => {
   const { ventaId } = req.params;
-  const { metodoPago, pin, montoEfectivo, montoTarjeta, montoYape } = req.body;
+  const { metodoPago, pin, montoEfectivo, montoTarjeta, montoYape, montoCredito, clienteCreditoId } = req.body;
 
-  const metodosPermitidos = ['Efectivo', 'Tarjeta', 'Yape', 'PedidosYa', 'Consumo', 'Cortesía', 'Mixto'];
+  const metodosPermitidos = ['Efectivo', 'Tarjeta', 'Yape', 'PedidosYa', 'Consumo', 'Cortesía', 'Mixto', 'Crédito'];
   if (!metodoPago || !metodosPermitidos.includes(metodoPago)) {
     return res.status(400).json({ error: `Método de pago inválido. Opciones: ${metodosPermitidos.join(', ')}` });
   }
@@ -2448,7 +2684,7 @@ app.patch('/api/ventas/:ventaId/metodo-pago', async (req, res) => {
 
     // Calcular costo original del pedido
     const baseItemsTotal = pedido.items.reduce((sum, item) => sum + (item.precio * item.cantidad), 0);
-    
+
     let shippingFee = 0;
     if (pedido.tipoEntrega === 'delivery' && pedido.codigoPedidosYa?.startsWith('DELIVERY -')) {
       const matchEnvio = pedido.codigoPedidosYa.match(/\[E:(\d+\.?\d*)\]/);
@@ -2466,17 +2702,25 @@ app.patch('/api/ventas/:ventaId/metodo-pago', async (req, res) => {
     let finalMontoEfectivo = 0;
     let finalMontoTarjeta = 0;
     let finalMontoYape = 0;
+    let finalMontoCredito = 0;
 
     if (metodoPago === 'Mixto') {
       finalMontoEfectivo = parseFloat(montoEfectivo || 0);
       finalMontoTarjeta = parseFloat(montoTarjeta || 0);
       finalMontoYape = parseFloat(montoYape || 0);
+      finalMontoCredito = parseFloat(montoCredito || 0);
     } else if (metodoPago === 'Efectivo') {
       finalMontoEfectivo = nuevoTotal;
     } else if (metodoPago === 'Tarjeta') {
       finalMontoTarjeta = nuevoTotal;
     } else if (metodoPago === 'Yape') {
       finalMontoYape = nuevoTotal;
+    } else if (metodoPago === 'Crédito') {
+      finalMontoCredito = nuevoTotal;
+    }
+
+    if (finalMontoCredito > 0 && !clienteCreditoId) {
+      return res.status(400).json({ error: 'Debe seleccionar un cliente para registrar la venta a crédito.' });
     }
 
     // Actualizar Venta
@@ -2489,7 +2733,9 @@ app.patch('/api/ventas/:ventaId/metodo-pago', async (req, res) => {
         igv,
         montoEfectivo: finalMontoEfectivo,
         montoTarjeta: finalMontoTarjeta,
-        montoYape: finalMontoYape
+        montoYape: finalMontoYape,
+        montoCredito: finalMontoCredito,
+        clienteCreditoId: clienteCreditoId ? parseInt(clienteCreditoId) : null
       },
     });
 
@@ -2512,7 +2758,7 @@ app.patch('/api/ventas/:ventaId/metodo-pago', async (req, res) => {
 // PATCH /api/ventas/:ventaId/tipo-entrega → Corregir tipo de entrega (PedidosYa, Para Llevar, Delivery)
 app.patch('/api/ventas/:ventaId/tipo-entrega', async (req, res) => {
   const { ventaId } = req.params;
-  const { 
+  const {
     tipoEntrega, // "ParaLlevar", "DeliveryPropio", "PedidosYa"
     codigoPedidosYa,
     nombreCliente,
@@ -2521,7 +2767,7 @@ app.patch('/api/ventas/:ventaId/tipo-entrega', async (req, res) => {
     montoDelivery,
     montoConCuanto,
     metodoPago, // 'Efectivo' | 'Tarjeta' | 'Yape'
-    pin 
+    pin
   } = req.body;
 
   if (!pin) {
@@ -2567,7 +2813,7 @@ app.patch('/api/ventas/:ventaId/tipo-entrega', async (req, res) => {
       nuevoTipoEntrega = 'delivery';
       const shippingFee = parseFloat(montoDelivery || 0);
       nuevoTotal = baseItemsTotal + shippingFee;
-      
+
       const tVal = telefono || 'S/D';
       const dVal = direccion || 'S/D';
       const eVal = shippingFee.toFixed(2);
@@ -2617,12 +2863,12 @@ app.patch('/api/ventas/:ventaId/tipo-entrega', async (req, res) => {
 // PATCH /api/ventas/:ventaId/datos-cliente → Corregir datos de facturación / datos de cliente de una venta
 app.patch('/api/ventas/:ventaId/datos-cliente', async (req, res) => {
   const { ventaId } = req.params;
-  const { 
+  const {
     tipoComprobante, // "Boleta" | "Factura" | "Ticket"
-    numDocumento, 
-    nombreCliente, 
-    clienteDireccion, 
-    pin 
+    numDocumento,
+    nombreCliente,
+    clienteDireccion,
+    pin
   } = req.body;
 
   if (!pin) {
@@ -2707,28 +2953,124 @@ app.patch('/api/ventas/:ventaId/datos-cliente', async (req, res) => {
   }
 });
 
+// PATCH /api/ventas/:ventaId/anular → Anular / Registrar devolución de un pedido entregado
+app.patch('/api/ventas/:ventaId/anular', async (req, res) => {
+  const { ventaId } = req.params;
+  const { pin, motivo } = req.body;
+
+  if (!pin) {
+    return res.status(400).json({ error: 'Se requiere PIN de Administrador.' });
+  }
+
+  try {
+    const admin = await prisma.usuario.findFirst({ where: { pin, activo: true } });
+    if (!admin) return res.status(401).json({ error: 'PIN incorrecto.' });
+    if (admin.rol !== 'Administrador') {
+      return res.status(403).json({ error: 'Solo el Administrador puede anular o registrar devolución de ventas.' });
+    }
+
+    const venta = await prisma.venta.findUnique({
+      where: { id: parseInt(ventaId) },
+      include: { pedido: true }
+    });
+    if (!venta) return res.status(404).json({ error: 'Venta no encontrada.' });
+
+    if (venta.anulado || venta.pedido?.estado === 'Cancelado') {
+      return res.status(400).json({ error: 'Esta venta ya se encuentra anulada / devuelta.' });
+    }
+
+    const motivoFinal = motivo ? String(motivo).trim() : 'Devolución de pedido por cliente';
+    const now = new Date();
+
+    const ventaAnulada = await prisma.$transaction(async (tx) => {
+      const vUpdated = await tx.venta.update({
+        where: { id: venta.id },
+        data: {
+          anulado: true,
+          motivoAnulacion: motivoFinal,
+          anuladoPor: admin.nombre,
+          anuladoEn: now,
+          montoOriginal: venta.montoOriginal || venta.total,
+          total: 0.00,
+          subtotal: 0.00,
+          igv: 0.00,
+          montoEfectivo: 0.00,
+          montoTarjeta: 0.00,
+          montoYape: 0.00,
+          montoCredito: 0.00,
+          descuentoAplicado: 0.00
+        }
+      });
+
+      if (venta.pedidoId) {
+        await tx.pedido.update({
+          where: { id: venta.pedidoId },
+          data: {
+            estado: 'Cancelado',
+            motivoCancela: `[DEVOLUCIÓN CAJA]: ${motivoFinal}`,
+            canceladoPor: admin.nombre,
+            canceladoEn: now
+          }
+        });
+      }
+
+      return vUpdated;
+    });
+
+    console.log(`🚫 Venta #${ventaId} anulada/devuelta por ${admin.nombre}. Motivo: ${motivoFinal}`);
+
+    res.json({
+      ok: true,
+      venta: ventaAnulada,
+      anuladoPor: admin.nombre,
+      mensaje: 'Venta anulada y devuelta a S/ 0.00 con éxito.'
+    });
+  } catch (err) {
+    console.error('Error al anular venta:', err);
+    res.status(500).json({ error: 'Error al anular venta: ' + err.message });
+  }
+});
+
 // POST /api/ventas → Cobrar mesa (acepta pedidoIds array o pedidoId simple)
 app.post('/api/ventas', async (req, res) => {
-  const { 
-    pedidoId, 
-    pedidoIds, 
-    tipoComprobante, 
-    numDocumento, 
-    nombreCliente, 
-    total, 
-    metodoPago, 
-    clienteDireccion, 
-    ofertaDescripcion, 
+  const {
+    pedidoId,
+    pedidoIds,
+    tipoComprobante,
+    numDocumento,
+    nombreCliente,
+    total,
+    metodoPago,
+    clienteDireccion,
+    ofertaDescripcion,
     descuentoAplicado,
     montoEfectivo,
     montoTarjeta,
     montoYape,
+    montoCredito,
+    clienteCreditoId,
+    creditosDetalle,
     cortesiaItemIds
   } = req.body;
   const idsAPagar = pedidoIds || [pedidoId];
   const idPrincipal = idsAPagar[idsAPagar.length - 1]; // El más reciente como venta principal
 
   try {
+    // 1. Validar si ya existe una venta asociada a estos pedidos (evita error de doble cobro por concurrencia)
+    const ventaExistente = await prisma.venta.findFirst({
+      where: { pedidoId: { in: idsAPagar } },
+    });
+    if (ventaExistente) {
+      return res.json({
+        ok: true,
+        ventaId: ventaExistente.id,
+        estadoNubefact: ventaExistente.estadoSunat,
+        serie: ventaExistente.serie,
+        numero: ventaExistente.numero,
+        yaCobrado: true
+      });
+    }
+
     const venta = await prisma.$transaction(async (tx) => {
       // Mover todos los items de los otros pedidos adicionales al pedido principal para que se consoliden en el detalle de la venta
       if (idsAPagar.length > 1) {
@@ -2778,17 +3120,74 @@ app.post('/api/ventas', async (req, res) => {
       let finalMontoEfectivo = 0;
       let finalMontoTarjeta = 0;
       let finalMontoYape = 0;
+      let finalMontoCredito = 0;
+      let finalClienteCreditoId = clienteCreditoId ? parseInt(clienteCreditoId) : null;
+      let validCreditosSplits = [];
+
+      if ((metodoPago === 'Crédito' || metodoPago === 'Mixto') && creditosDetalle && Array.isArray(creditosDetalle) && creditosDetalle.length > 0) {
+        validCreditosSplits = creditosDetalle
+          .map(c => ({
+            clienteId: parseInt(c.clienteId || c.id),
+            nombre: String(c.nombre || '').trim(),
+            monto: parseFloat(c.monto || 0)
+          }))
+          .filter(c => !isNaN(c.clienteId) && c.clienteId > 0 && c.monto > 0);
+      }
 
       if (metodoPago === 'Mixto') {
         finalMontoEfectivo = parseFloat(montoEfectivo || 0);
         finalMontoTarjeta = parseFloat(montoTarjeta || 0);
         finalMontoYape = parseFloat(montoYape || 0);
+        if (validCreditosSplits.length > 0) {
+          finalMontoCredito = validCreditosSplits.reduce((s, c) => s + c.monto, 0);
+          finalClienteCreditoId = validCreditosSplits[0].clienteId;
+        } else {
+          finalMontoCredito = parseFloat(montoCredito || 0);
+          finalClienteCreditoId = finalMontoCredito > 0 ? (clienteCreditoId ? parseInt(clienteCreditoId) : null) : null;
+        }
       } else if (metodoPago === 'Efectivo') {
         finalMontoEfectivo = finalTotal;
+        finalMontoTarjeta = 0;
+        finalMontoYape = 0;
+        finalMontoCredito = 0;
+        finalClienteCreditoId = null;
+        validCreditosSplits = [];
       } else if (metodoPago === 'Tarjeta') {
+        finalMontoEfectivo = 0;
         finalMontoTarjeta = finalTotal;
+        finalMontoYape = 0;
+        finalMontoCredito = 0;
+        finalClienteCreditoId = null;
+        validCreditosSplits = [];
       } else if (metodoPago === 'Yape') {
+        finalMontoEfectivo = 0;
+        finalMontoTarjeta = 0;
         finalMontoYape = finalTotal;
+        finalMontoCredito = 0;
+        finalClienteCreditoId = null;
+        validCreditosSplits = [];
+      } else if (metodoPago === 'Crédito') {
+        finalMontoEfectivo = 0;
+        finalMontoTarjeta = 0;
+        finalMontoYape = 0;
+        if (validCreditosSplits.length > 0) {
+          finalMontoCredito = validCreditosSplits.reduce((s, c) => s + c.monto, 0);
+          finalClienteCreditoId = validCreditosSplits[0].clienteId;
+        } else {
+          finalMontoCredito = finalTotal;
+          finalClienteCreditoId = clienteCreditoId ? parseInt(clienteCreditoId) : null;
+        }
+      } else if (metodoPago === 'Cortesía' || metodoPago === 'Consumo') {
+        finalMontoEfectivo = 0;
+        finalMontoTarjeta = 0;
+        finalMontoYape = 0;
+        finalMontoCredito = 0;
+        finalClienteCreditoId = null;
+        validCreditosSplits = [];
+      }
+
+      if (finalMontoCredito > 0 && !finalClienteCreditoId) {
+        throw new Error('Debe seleccionar al menos un cliente para registrar la venta a crédito.');
       }
 
       // Calcular correlativo para apisunat.pe si es Boleta o Factura
@@ -2807,20 +3206,32 @@ app.post('/api/ventas', async (req, res) => {
         descDescrip = descDescrip ? `${descDescrip} + Cortesía de ítems` : 'Cortesía de ítems';
       }
 
+      // Si hay splits múltiples de crédito, anexar la etiqueta a ofertaDescripcion solo si aplica
+      if ((metodoPago === 'Crédito' || (metodoPago === 'Mixto' && finalMontoCredito > 0)) && validCreditosSplits.length > 0) {
+        const splitTag = `[CREDITO_SPLIT:${JSON.stringify(validCreditosSplits)}]`;
+        descDescrip = descDescrip ? `${descDescrip} ${splitTag}` : splitTag;
+      }
+
       const ventaCreada = await tx.venta.create({
-        data: { 
-          pedidoId: idPrincipal, 
-          tipoComprobante, 
-          numDocumento, 
-          nombreCliente: metodoPago === 'Cortesía' ? (nombreCliente || 'CONSUMO PERSONAL / CORTESÍA') : nombreCliente, 
+        data: {
+          pedidoId: idPrincipal,
+          tipoComprobante,
+          numDocumento,
+          nombreCliente: (metodoPago === 'Cortesía' || metodoPago === 'Consumo') 
+            ? (nombreCliente || 'CONSUMO PERSONAL / CORTESÍA') 
+            : ((!nombreCliente || nombreCliente === 'PÚBLICO GENERAL') && validCreditosSplits.length > 0)
+              ? validCreditosSplits.map(c => c.nombre).filter(Boolean).join(', ') || 'PÚBLICO GENERAL'
+              : (nombreCliente || 'PÚBLICO GENERAL'),
           clienteDireccion: clienteDireccion || '',
-          total: finalTotal, 
-          igv, 
-          subtotal, 
+          total: finalTotal,
+          igv,
+          subtotal,
           metodoPago,
           montoEfectivo: finalMontoEfectivo,
           montoTarjeta: finalMontoTarjeta,
           montoYape: finalMontoYape,
+          montoCredito: finalMontoCredito,
+          clienteCreditoId: finalClienteCreditoId,
           estadoNubefact: initEstadoSunat,
           estadoSunat: initEstadoSunat,
           serie,
@@ -2863,14 +3274,14 @@ app.post('/api/ventas', async (req, res) => {
 
         // Llamar a apisunat.pe
         const response = await enviarAApisunat({ ...venta, clienteDireccion }, pedidoConItems.items);
-        
+
         // Mapear respuesta para compatibilidad con el front
         const mappedData = {
           serie: venta.serie,
           numero: venta.numero,
           key: response.payload?.hash || '',
           enlace_del_pdf: response.payload?.pdf?.ticket || response.payload?.pdf?.a4 || '',
-          cadena_para_codigo_qr: `${process.env.RUC_EMPRESA || '10710311191'}|${venta.tipoComprobante === 'Factura' ? '01' : '03'}|${venta.serie}|${String(venta.numero).padStart(4, '0')}|${venta.igv.toFixed(2)}|${venta.total.toFixed(2)}|${new Intl.DateTimeFormat('es-PE', {timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit'}).format(new Date(venta.createdAt))}|${venta.tipoComprobante === 'Factura' ? '6' : (venta.numDocumento?.length === 8 ? '1' : '0')}|${venta.numDocumento || '00000000'}|${response.payload?.hash || ''}`
+          cadena_para_codigo_qr: `${process.env.RUC_EMPRESA || '10710311191'}|${venta.tipoComprobante === 'Factura' ? '01' : '03'}|${venta.serie}|${String(venta.numero).padStart(4, '0')}|${venta.igv.toFixed(2)}|${venta.total.toFixed(2)}|${new Intl.DateTimeFormat('es-PE', { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(venta.createdAt))}|${venta.tipoComprobante === 'Factura' ? '6' : (venta.numDocumento?.length === 8 ? '1' : '0')}|${venta.numDocumento || '00000000'}|${response.payload?.hash || ''}`
         };
 
         const strAceptado = `ACEPTADO:${JSON.stringify(mappedData)}`;
@@ -2878,7 +3289,7 @@ app.post('/api/ventas', async (req, res) => {
         // Si tiene éxito, actualizamos a ACEPTADO y guardamos la respuesta
         const ventaActualizada = await prisma.venta.update({
           where: { id: venta.id },
-          data: { 
+          data: {
             estadoNubefact: strAceptado,
             estadoSunat: strAceptado,
             urlPdf: mappedData.enlace_del_pdf,
@@ -2886,9 +3297,9 @@ app.post('/api/ventas', async (req, res) => {
           }
         });
 
-        return res.json({ 
-          ok: true, 
-          ventaId: venta.id, 
+        return res.json({
+          ok: true,
+          ventaId: venta.id,
           estadoNubefact: ventaActualizada.estadoSunat,
           serie: venta.serie,
           numero: venta.numero
@@ -2899,16 +3310,16 @@ app.post('/api/ventas', async (req, res) => {
         // Guardar estado de contingencia
         const ventaActualizada = await prisma.venta.update({
           where: { id: venta.id },
-          data: { 
+          data: {
             estadoNubefact: 'PENDIENTE_REINTENTO',
             estadoSunat: 'PENDIENTE_REINTENTO'
           }
         });
 
         // Retornamos éxito al POS para liberar la mesa sin trabas e indicando contingencia
-        return res.json({ 
-          ok: true, 
-          ventaId: venta.id, 
+        return res.json({
+          ok: true,
+          ventaId: venta.id,
           estadoNubefact: ventaActualizada.estadoSunat,
           serie: venta.serie,
           numero: venta.numero,
@@ -2918,8 +3329,24 @@ app.post('/api/ventas', async (req, res) => {
       }
     }
 
-    res.json({ ok: true, ventaId: venta.id, estadoNubefact: initEstadoSunat, serie: null, numero: null });
+    res.json({ ok: true, ventaId: venta.id, estadoNubefact: venta.estadoSunat, serie: venta.serie || null, numero: venta.numero || null });
   } catch (err) {
+    console.error('Error al procesar cobro:', err);
+    if (err.code === 'P2002' || (err.message && err.message.includes('pedidoId'))) {
+      const ventaExistente = await prisma.venta.findFirst({
+        where: { pedidoId: { in: idsAPagar } },
+      });
+      if (ventaExistente) {
+        return res.json({
+          ok: true,
+          ventaId: ventaExistente.id,
+          estadoNubefact: ventaExistente.estadoSunat,
+          serie: ventaExistente.serie,
+          numero: ventaExistente.numero,
+          yaCobrado: true
+        });
+      }
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -2948,8 +3375,8 @@ app.get('/api/ventas', async (req, res) => {
     }
 
     const ventas = await prisma.venta.findMany({
-      where: { 
-        createdAt: filtroFecha,
+      where: {
+        createdAt: filtroFecha
       },
       include: {
         pedido: {
@@ -2962,52 +3389,54 @@ app.get('/api/ventas', async (req, res) => {
       orderBy: { createdAt: 'desc' },
     });
 
-    const formateadas = ventas.map(v => {
-      const montoOriginal = v.pedido?.items?.reduce((acc, i) => acc + (i.precio * i.cantidad), 0) || v.total || 0;
-      return {
-        id: v.id,
-        pedidoId: v.pedidoId,
-        tipoComprobante: v.tipoComprobante,
-        numDocumento: v.numDocumento,
-        nombreCliente: v.nombreCliente,
-        clienteDireccion: v.clienteDireccion || '',
-        total: v.total,
-        montoOriginal: montoOriginal,
-        igv: v.igv,
-        subtotal: v.subtotal,
-        metodoPago: v.metodoPago,
-        montoEfectivo: v.montoEfectivo,
-        montoTarjeta: v.montoTarjeta,
-        montoYape: v.montoYape,
-        hora: v.createdAt.toLocaleTimeString('es-PE', {
-          hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima',
-        }),
-        mesaNum: v.pedido?.mesa?.numero || null,
-        mesero: v.pedido?.mesero || null,
-        codigoPedidosYa: v.pedido?.codigoPedidosYa || null,
-        tipoEntrega: v.pedido?.tipoEntrega || 'salon',
-        estadoPedido: v.pedido?.estado || null,
-        canceladoPor: v.pedido?.canceladoPor || null,
-        motivoCancela: v.pedido?.motivoCancela || null,
-        canceladoEn: v.pedido?.canceladoEn ? v.pedido.canceladoEn.toISOString() : null,
-        createdAt: v.createdAt.toISOString(),
-        estadoNubefact: v.estadoNubefact,
-        estadoSunat: v.estadoSunat,
-        serie: v.serie,
-        numero: v.numero,
-        itemsResumen: v.pedido?.items
-          ?.filter(i => i.precio > 0 || BARRA_CATEGORIAS.includes(i.producto?.categoria) || i.notas?.includes('CORTESÍA') || i.nombre?.includes('CORTESÍA'))
-          ?.map(i => `${i.cantidad}x ${i.nombre}`).join(', ') || '',
+    const formateadas = ventas.map(v => ({
+      id: v.id,
+      pedidoId: v.pedidoId,
+      tipoComprobante: v.tipoComprobante,
+      numDocumento: v.numDocumento,
+      nombreCliente: v.nombreCliente,
+      clienteDireccion: v.clienteDireccion || '',
+      total: v.total,
+      igv: v.igv,
+      subtotal: v.subtotal,
+      metodoPago: v.metodoPago,
+      montoEfectivo: v.montoEfectivo,
+      montoTarjeta: v.montoTarjeta,
+      montoYape: v.montoYape,
+      montoCredito: v.montoCredito || 0,
+      clienteCreditoId: v.clienteCreditoId || null,
+      ofertaDescripcion: v.ofertaDescripcion || null,
+      descuentoAplicado: v.descuentoAplicado || 0,
+      creditoSplit: parsearCreditoSplit(v.ofertaDescripcion, v.clienteCreditoId, v.montoCredito || (v.metodoPago === 'Crédito' ? v.total : 0)),
+      anulado: v.anulado || v.pedido?.estado === 'Cancelado',
+      motivoAnulacion: v.motivoAnulacion || v.pedido?.motivoCancela || null,
+      anuladoPor: v.anuladoPor || v.pedido?.canceladoPor || null,
+      anuladoEn: v.anuladoEn || v.pedido?.canceladoEn || null,
+      montoOriginal: v.montoOriginal || null,
+      hora: v.createdAt.toLocaleTimeString('es-PE', {
+        hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima',
+      }),
+      mesaNum: v.pedido?.mesa?.numero || null,
+      mesero: v.pedido?.mesero || null,
+      codigoPedidosYa: v.pedido?.codigoPedidosYa || null,
+      tipoEntrega: v.pedido?.tipoEntrega || 'salon',
+      estadoPedido: v.pedido?.estado || null,
+      createdAt: v.createdAt.toISOString(),
+      estadoNubefact: v.estadoNubefact,
+      serie: v.serie,
+      numero: v.numero,
+      itemsResumen: v.pedido?.items
+        ?.filter(i => i.precio > 0 || BARRA_CATEGORIAS.includes(i.producto?.categoria) || i.notas?.includes('CORTESÍA') || i.nombre?.includes('CORTESÍA'))
+        ?.map(i => `${i.cantidad}x ${i.nombre}`).join(', ') || '',
 
-        items: v.pedido?.items
-          ?.filter(i => i.precio > 0 || BARRA_CATEGORIAS.includes(i.producto?.categoria) || i.notas?.includes('CORTESÍA') || i.nombre?.includes('CORTESÍA'))
-          ?.map(i => ({
-            nombre: i.nombre,
-            cant: i.cantidad,
-            precio: i.precio
-          })) || [],
-      };
-    });
+      items: v.pedido?.items
+        ?.filter(i => i.precio > 0 || BARRA_CATEGORIAS.includes(i.producto?.categoria) || i.notas?.includes('CORTESÍA') || i.nombre?.includes('CORTESÍA'))
+        ?.map(i => ({
+          nombre: i.nombre,
+          cant: i.cantidad,
+          precio: i.precio
+        })) || [],
+    }));
 
     res.json(formateadas);
   } catch (err) {
@@ -3033,62 +3462,85 @@ app.get('/api/ventas/resumen', async (req, res) => {
       filterDate = new Date(hoyPeru.getTime() + 5 * 60 * 60 * 1000);
     }
 
-    const ventas = await prisma.venta.findMany({
-      where: { 
-        createdAt: { gte: filterDate },
-        pedido: { estado: { not: 'Cancelado' } }
-      },
-    });
+    const [ventas, abonos, clientes] = await Promise.all([
+      prisma.venta.findMany({
+        where: {
+          createdAt: { gte: filterDate },
+          pedido: { estado: { not: 'Cancelado' } }
+        },
+      }),
+      prisma.abonoCredito.findMany({
+        where: {
+          creadoEn: { gte: filterDate }
+        }
+      }),
+      prisma.cliente.findMany()
+    ]);
 
     const totalVentas = ventas.reduce((s, v) => s + v.total, 0);
     const totalIGVVentas = ventas.reduce((s, v) => s + v.igv, 0);
     const atendidas = ventas.length;
 
-    // Desglose por tipo
-    // Ventas reales cobradas en caja (excluir Cortesía, Consumo, PedidosYa)
-    const ventasReales = ventas.filter(v =>
-      v.metodoPago !== 'Cortesía' && v.metodoPago !== 'Consumo' && v.metodoPago !== 'PedidosYa'
-    );
+    let totalEfectivo = 0;
+    let totalTarjeta = 0;
+    let totalYape = 0;
 
-    let sumEfectivo = 0;
-    let sumTarjeta = 0;
-    let sumYape = 0;
-
-    ventasReales.forEach(v => {
-      let efec = v.montoEfectivo || 0;
-      let tarj = v.montoTarjeta || 0;
-      let yape = v.montoYape || 0;
-
-      const tieneMontoExplicit = (efec > 0 || tarj > 0 || yape > 0);
-      if (!tieneMontoExplicit) {
-        if (v.metodoPago === 'Efectivo') efec = v.total || 0;
-        else if (v.metodoPago === 'Tarjeta') tarj = v.total || 0;
-        else if (v.metodoPago === 'Yape' || v.metodoPago === 'Plin') yape = v.total || 0;
-      }
-
-      sumEfectivo += efec;
-      sumTarjeta += tarj;
-      sumYape += yape;
+    ventas.forEach(v => {
+      const { efec, tarj, yape } = obtenerMontosVenta(v);
+      totalEfectivo += efec;
+      totalTarjeta += tarj;
+      totalYape += yape;
     });
 
-    const ingresosCaja = sumEfectivo + sumTarjeta + sumYape;
+    // Sumar abonos a la caja física
+    abonos.forEach(a => {
+      totalEfectivo += a.montoEfectivo || 0;
+      totalTarjeta += a.montoTarjeta || 0;
+      totalYape += a.montoYape || 0;
+    });
+
+    const ingresosCaja = totalEfectivo + totalTarjeta + totalYape;
     const ingresosPedidosYa = ventas
       .filter(v => v.metodoPago === 'PedidosYa')
       .reduce((s, v) => s + v.total, 0);
-    const totalConsumos = ventas
-      .filter(v => v.metodoPago === 'Consumo')
-      .reduce((s, v) => s + (v.descuentoAplicado || v.total), 0);
+
+    const clienteMap = new Map(clientes.map(c => [c.id, c.esTrabajador]));
+    let consumoClientes = 0;
+    let consumoPlanilla = 0;
+
+    ventas.forEach(v => {
+      if (v.metodoPago === 'Consumo') {
+        consumoPlanilla += (v.descuentoAplicado || v.total);
+      } else {
+        const splits = parsearCreditoSplit(v.ofertaDescripcion, v.clienteCreditoId, (v.montoCredito > 0 ? v.montoCredito : (v.metodoPago === 'Crédito' ? v.total : 0)));
+        if (splits.length > 0) {
+          splits.forEach(s => {
+            const esTrab = clienteMap.get(s.clienteId) || false;
+            if (esTrab) {
+              consumoPlanilla += s.monto;
+            } else {
+              consumoClientes += s.monto;
+            }
+          });
+        } else if (v.metodoPago === 'Crédito') {
+          consumoClientes += v.total;
+        } else if (parseFloat(v.montoCredito || 0) > 0) {
+          consumoClientes += parseFloat(v.montoCredito);
+        }
+      }
+    });
+
     const totalCortesias = ventas
       .filter(v => v.metodoPago === 'Cortesía')
       .reduce((s, v) => s + (v.descuentoAplicado || v.total), 0);
 
-    // Desglose por método (de todos los ingresos reales de caja distribuidos)
     const porMetodoPago = {
-      Efectivo: sumEfectivo,
-      Tarjeta:  sumTarjeta,
-      Yape:     sumYape,
+      Efectivo: totalEfectivo,
+      Tarjeta: totalTarjeta,
+      Yape: totalYape,
       PedidosYa: ingresosPedidosYa,
-      Consumo: totalConsumos,
+      ConsumoPlanilla: consumoPlanilla,
+      ConsumoClientes: consumoClientes,
       Cortesía: totalCortesias,
     };
 
@@ -3097,7 +3549,8 @@ app.get('/api/ventas/resumen', async (req, res) => {
       ingresos: totalVentas,
       ingresosCaja,
       ingresosPedidosYa,
-      totalConsumos,
+      consumoPlanilla,
+      consumoClientes,
       totalCortesias,
       porMetodoPago,
       igvVentas: totalIGVVentas,
@@ -3112,24 +3565,47 @@ app.get('/api/ventas/resumen', async (req, res) => {
 // ============================================================
 
 app.get('/api/compras', async (req, res) => {
-  const { desde, hasta } = req.query;
+  const { desde, hasta, categoria, metodoPago, busqueda } = req.query;
   try {
-    let filtroFecha = {};
+    let whereClause = {};
+
     if (desde && hasta) {
       const nextDay = new Date(hasta + 'T00:00:00.000-05:00');
       nextDay.setDate(nextDay.getDate() + 1);
       const nextDayStr = nextDay.toISOString().split('T')[0];
-      filtroFecha = {
-        gte: new Date(desde + 'T03:00:00.000-05:00'),
+      whereClause.creadoEn = {
+        gte: new Date(desde + 'T00:00:00.000-05:00'),
         lte: new Date(nextDayStr + 'T02:59:59.999-05:00')
+      };
+    } else if (desde) {
+      whereClause.creadoEn = {
+        gte: new Date(desde + 'T00:00:00.000-05:00')
       };
     } else {
       const ahora = new Date();
       const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
-      filtroFecha = { gte: inicioMes };
+      whereClause.creadoEn = { gte: inicioMes };
     }
+
+    if (categoria && categoria !== 'Todas') {
+      whereClause.categoria = categoria;
+    }
+
+    if (metodoPago && metodoPago !== 'Todos') {
+      whereClause.metodoPago = metodoPago;
+    }
+
+    if (busqueda && busqueda.trim()) {
+      const q = busqueda.trim();
+      whereClause.OR = [
+        { proveedor: { contains: q, mode: 'insensitive' } },
+        { ruc: { contains: q, mode: 'insensitive' } },
+        { serieNumero: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+
     const compras = await prisma.compra.findMany({
-      where: { creadoEn: filtroFecha },
+      where: whereClause,
       orderBy: { creadoEn: 'desc' },
     });
     res.json(compras);
@@ -3327,7 +3803,7 @@ app.post('/api/compras/sincronizar-sunat', async (req, res) => {
 
 app.post('/api/compras', async (req, res) => {
   try {
-    const { proveedor, ruc, tipoDocumento, serieNumero, baseImponible, igv, total, xmlData, origenCarga, categoria, fechaEmision } = req.body;
+    const { proveedor, ruc, tipoDocumento, serieNumero, baseImponible, igv, total, xmlData, origenCarga, categoria, fechaEmision, metodoPago } = req.body;
     const compra = await prisma.compra.create({
       data: {
         proveedor: String(proveedor),
@@ -3341,6 +3817,7 @@ app.post('/api/compras', async (req, res) => {
         origenCarga: origenCarga ? String(origenCarga) : 'manual',
         categoria: categoria ? String(categoria) : null,
         fechaEmision: fechaEmision ? new Date(fechaEmision) : null,
+        metodoPago: metodoPago ? String(metodoPago) : 'Efectivo',
       }
     });
     res.json(compra);
@@ -3359,6 +3836,46 @@ app.patch('/api/compras/:id/categoria', async (req, res) => {
       data: { categoria: categoria ? String(categoria) : null },
     });
     res.json(compra);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/compras/:id → Editar todos los datos de una compra/gasto
+app.put('/api/compras/:id', async (req, res) => {
+  const id = parseInt(req.params.id);
+  const { proveedor, ruc, tipoDocumento, serieNumero, baseImponible, igv, total, categoria, fechaEmision, metodoPago } = req.body;
+  try {
+    const data = {};
+    if (proveedor !== undefined) data.proveedor = String(proveedor);
+    if (ruc !== undefined) data.ruc = ruc ? String(ruc) : null;
+    if (tipoDocumento !== undefined) data.tipoDocumento = String(tipoDocumento);
+    if (serieNumero !== undefined) data.serieNumero = serieNumero ? String(serieNumero) : null;
+    if (baseImponible !== undefined) data.baseImponible = parseFloat(baseImponible) || 0;
+    if (igv !== undefined) data.igv = parseFloat(igv) || 0;
+    if (total !== undefined) data.total = parseFloat(total) || 0;
+    if (categoria !== undefined) data.categoria = categoria ? String(categoria) : null;
+    if (fechaEmision !== undefined) data.fechaEmision = fechaEmision ? new Date(fechaEmision) : null;
+    if (metodoPago !== undefined) data.metodoPago = String(metodoPago);
+
+    const compra = await prisma.compra.update({
+      where: { id },
+      data,
+    });
+    res.json(compra);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/compras/:id → Eliminar una compra o gasto
+app.delete('/api/compras/:id', async (req, res) => {
+  const id = parseInt(req.params.id);
+  try {
+    await prisma.compra.delete({
+      where: { id },
+    });
+    res.json({ ok: true, mensaje: 'Gasto/Compra eliminada exitosamente.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -3391,32 +3908,29 @@ app.get('/api/reportes/cancelaciones', async (req, res) => {
 
     const pedidos = await prisma.pedido.findMany({
       where: {
-        estado: 'Cancelado',
         OR: [
-          { canceladoEn: filtroFecha },
-          { createdAt: filtroFecha }
-        ]
+          { estado: 'Cancelado' },
+          { Venta: { anulado: true } }
+        ],
+        createdAt: filtroFecha
       },
-      include: { items: true, mesa: true },
-      orderBy: { id: 'desc' },
+      include: { items: true, mesa: true, Venta: true },
+      orderBy: { createdAt: 'desc' },
     });
 
-    const formateados = pedidos.map(p => {
-      const fechaObj = p.canceladoEn || p.createdAt;
-      return {
-        id: p.id,
-        hora: fechaObj ? new Date(fechaObj).toLocaleTimeString('es-PE', {
-          hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima',
-        }) : '',
-        fecha: fechaObj ? new Date(fechaObj).toLocaleDateString('es-PE') : '',
-        mesa: p.mesa?.numero || null,
-        codigoPedidosYa: p.codigoPedidosYa,
-        canceladoPor: p.canceladoPor || 'Sistema / Caja',
-        motivoCancela: p.motivoCancela || 'Sin motivo especificado',
-        total: p.total,
-        resumenItems: p.items ? p.items.map(i => `${i.cantidad}x ${i.nombre}`).join(', ') : '',
-      };
-    });
+    const formateados = pedidos.map(p => ({
+      id: p.id,
+      hora: (p.canceladoEn || p.updatedAt || p.createdAt)?.toLocaleTimeString('es-PE', {
+        hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima',
+      }),
+      fecha: (p.canceladoEn || p.updatedAt || p.createdAt)?.toLocaleDateString('es-PE'),
+      mesa: p.mesa?.numero || null,
+      codigoPedidosYa: p.codigoPedidosYa,
+      canceladoPor: p.canceladoPor || p.Venta?.anuladoPor || 'Admin',
+      motivoCancela: p.motivoCancela || p.Venta?.motivoAnulacion || 'Devolución en Caja',
+      total: p.Venta?.montoOriginal || p.total,
+      resumenItems: p.items.map(i => `${i.cantidad}x ${i.nombre}`).join(', '),
+    }));
 
     res.json(formateados);
   } catch (err) {
@@ -3492,18 +4006,16 @@ app.get('/api/reportes/contable', async (req, res) => {
       filtroFecha = { gte: inicioMes };
     }
 
-    const [ventas, compras] = await Promise.all([
-      prisma.venta.findMany({ 
-        where: { 
+    const [ventas, compras, abonos, clientes] = await Promise.all([
+      prisma.venta.findMany({
+        where: {
           createdAt: filtroFecha,
-        },
-        include: {
-          pedido: {
-            include: { items: true }
-          }
+          pedido: { estado: { not: 'Cancelado' } }
         }
       }),
       prisma.compra.findMany({ where: { creadoEn: filtroFecha } }),
+      prisma.abonoCredito.findMany({ where: { creadoEn: filtroFecha } }),
+      prisma.cliente.findMany()
     ]);
 
     const ventasTotal = ventas.reduce((s, v) => s + v.total, 0);
@@ -3513,10 +4025,187 @@ app.get('/api/reportes/contable', async (req, res) => {
     const comprasIGV = compras.reduce((s, c) => s + c.igv, 0);
     const comprasBase = compras.reduce((s, c) => s + c.baseImponible, 0);
 
+    let totalEfectivo = 0;
+    let totalTarjeta = 0;
+    let totalYape = 0;
+
+    ventas.forEach(v => {
+      const { efec, tarj, yape } = obtenerMontosVenta(v);
+      totalEfectivo += efec;
+      totalTarjeta += tarj;
+      totalYape += yape;
+    });
+
+    // Sumar abonos a la caja física
+    abonos.forEach(a => {
+      totalEfectivo += a.montoEfectivo || 0;
+      totalTarjeta += a.montoTarjeta || 0;
+      totalYape += a.montoYape || 0;
+    });
+
+    const clienteMap = new Map(clientes.map(c => [c.id, c.esTrabajador]));
+    let consumoClientes = 0;
+    let consumoPlanilla = 0;
+
+    ventas.forEach(v => {
+      if (v.metodoPago === 'Consumo') {
+        consumoPlanilla += (v.descuentoAplicado || v.total);
+      } else {
+        const splits = parsearCreditoSplit(v.ofertaDescripcion, v.clienteCreditoId, (v.montoCredito > 0 ? v.montoCredito : (v.metodoPago === 'Crédito' ? v.total : 0)));
+        if (splits.length > 0) {
+          splits.forEach(s => {
+            const esTrab = clienteMap.get(s.clienteId) || false;
+            if (esTrab) {
+              consumoPlanilla += s.monto;
+            } else {
+              consumoClientes += s.monto;
+            }
+          });
+        } else if (v.metodoPago === 'Crédito') {
+          consumoClientes += v.total;
+        } else if (parseFloat(v.montoCredito || 0) > 0) {
+          consumoClientes += parseFloat(v.montoCredito);
+        }
+      }
+    });
+
     res.json({
       ventasTotal, ventasIGV, ventasBase,
       comprasTotal, comprasIGV, comprasBase,
       igvAPagar: ventasIGV - comprasIGV,
+      desgloseCaja: {
+        efectivo: totalEfectivo,
+        tarjeta: totalTarjeta,
+        yape: totalYape,
+        pedidosYa: ventas.filter(v => v.metodoPago === 'PedidosYa').reduce((s, v) => s + v.total, 0),
+        consumos: consumoPlanilla,
+        consumoPlanilla,
+        credito: consumoClientes,
+        consumoClientes,
+        cortesias: ventas.filter(v => v.metodoPago === 'Cortesía').reduce((s, v) => s + (v.descuentoAplicado || v.total), 0),
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/reportes/pollos → Reporte de pollos vendidos e inventario con conversión fraccionada
+app.get('/api/reportes/pollos', async (req, res) => {
+  const { desde, hasta } = req.query;
+  try {
+    let filtroFecha = {};
+    if (desde && hasta) {
+      const gteDate = desde.length === 10 ? new Date(desde + 'T03:00:00.000-05:00') : new Date(desde);
+      const nextDay = new Date(hasta + 'T00:00:00.000-05:00');
+      nextDay.setDate(nextDay.getDate() + 1);
+      const nextDayStr = nextDay.toISOString().split('T')[0];
+      const lteDate = hasta.length === 10 ? new Date(nextDayStr + 'T02:59:59.999-05:00') : new Date(hasta);
+      filtroFecha = { gte: gteDate, lte: lteDate };
+    } else {
+      const ahora = new Date();
+      const hoyPeru = new Date(ahora.toLocaleString('en-US', { timeZone: 'America/Lima' }));
+      if (hoyPeru.getHours() < 3) {
+        hoyPeru.setDate(hoyPeru.getDate() - 1);
+      }
+      hoyPeru.setHours(3, 0, 0, 0);
+      const inicioUTC = new Date(hoyPeru.getTime() + 5 * 60 * 60 * 1000);
+      filtroFecha = { gte: inicioUTC };
+    }
+
+    // Obtener TODOS los pedidos cobrados (incluyendo items con precio 0 que son componentes de combos)
+    const pedidos = await prisma.pedido.findMany({
+      where: {
+        estado: 'Cobrado',
+        createdAt: filtroFecha
+      },
+      include: {
+        items: {
+          include: { producto: true }
+        }
+      }
+    });
+
+    // Tabla de conversión de fracciones de pollo a unidades enteras
+    const FRACCIONES = {
+      '1/8': 0.125,
+      '1/4': 0.25,
+      '1/2': 0.5,
+      '1': 1.0,
+    };
+
+    // Determinar la fracción de un item basado en nombre o categoría
+    const obtenerFraccion = (nombre, categoria) => {
+      const n = (nombre || '').toLowerCase();
+      // Verificar si es un producto de pollo (nombre contiene pollo o categoría es pollos)
+      const esPollo = n.includes('pollo') || (categoria || '').includes('Pollos') || ['Pollos a la Brasa', 'Piqueo', 'Parrillada Mixta', 'Piqueo Fogón Dorado'].some(c => (categoria || '').includes(c));
+      if (!esPollo) return 0;
+
+      // Detectar fracción en el nombre
+      if (n.includes('1/8') || n.includes('octavo')) return FRACCIONES['1/8'];
+      if (n.includes('1/4') || n.includes('cuarto')) return FRACCIONES['1/4'];
+      if (n.includes('1/2') || n.includes('medio')) return FRACCIONES['1/2'];
+      if (n.includes('1 pollo') || n.startsWith('1 pollo') || n.includes('pollo entero') || n.includes('un pollo')) return FRACCIONES['1'];
+
+      // Fallback: si tiene "pollo" pero no fracción específica, asumir 1 entero
+      return n.includes('pollo') ? FRACCIONES['1'] : 0;
+    };
+
+    // Acumulación por producto
+    const productos = {};
+    let totalOctavos = 0, totalCuartos = 0, totalMedios = 0, totalEnteros = 0;
+    let unidadesTotales = 0;
+    let ventasConPollo = 0;
+
+    for (const p of pedidos) {
+      for (const item of p.items) {
+        const fraccion = obtenerFraccion(item.nombre, item.producto?.categoria);
+        if (fraccion > 0) {
+          const prodId = item.productoId;
+          if (!productos[prodId]) {
+            productos[prodId] = {
+              id: prodId,
+              nombre: item.nombre,
+              categoria: item.producto?.categoria || 'Sin categoría',
+              cantidadVendida: 0,
+              unidadesEquivalentes: 0,
+              stockActual: item.producto?.stock || 0,
+            };
+          }
+          const unidades = fraccion * item.cantidad;
+          productos[prodId].cantidadVendida += item.cantidad;
+          productos[prodId].unidadesEquivalentes += unidades;
+          unidadesTotales += unidades;
+          ventasConPollo++;
+
+          if (fraccion === FRACCIONES['1/8']) totalOctavos += item.cantidad;
+          else if (fraccion === FRACCIONES['1/4']) totalCuartos += item.cantidad;
+          else if (fraccion === FRACCIONES['1/2']) totalMedios += item.cantidad;
+          else if (fraccion === FRACCIONES['1']) totalEnteros += item.cantidad;
+        }
+      }
+    }
+
+    // Calcular total de pollos vendidos con la fórmula: Σ (Octavos × 0.125 + Cuartos × 0.25 + Medios × 0.50 + Enteros × 1.0)
+    const totalFormula = (totalOctavos * FRACCIONES['1/8']) + (totalCuartos * FRACCIONES['1/4']) + (totalMedios * FRACCIONES['1/2']) + (totalEnteros * FRACCIONES['1']);
+
+    // Stock inicial configurable: usar el mayor stock de los productos de pollo registrado, o 0 si no hay
+    const productosPollo = await prisma.producto.findMany({
+      where: { categoria: { in: ['Pollos a la Brasa', 'Piqueo', 'Piqueos'] } }
+    });
+    const stockInicial = productosPollo.reduce((max, p) => Math.max(max, p.stock || 0), 50) || 50; // Default 50 si no hay stock
+    const porcentajeRotacion = stockInicial > 0 ? parseFloat(((totalFormula / stockInicial) * 100).toFixed(1)) : 0;
+
+    res.json({
+      totalOctavos,
+      totalCuartos,
+      totalMedios,
+      totalEnteros,
+      totalVentasConPollo: ventasConPollo,
+      totalUnidadesEquivalentes: parseFloat(totalFormula.toFixed(2)),
+      stockInicial,
+      porcentajeRotacion,
+      detalles: Object.values(productos).sort((a, b) => b.unidadesEquivalentes - a.unidadesEquivalentes),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -3591,76 +4280,13 @@ app.get('/api/reportes/rotacion', async (req, res) => {
 
 
 // ============================================================
-// INICIO DEL SERVIDOR
+// INICIO DEL SERVIDOR (DESACOPLADO DE TAREAS PESADAS DE MIGRACIÓN)
 // ============================================================
-async function ejecutarMigracionMontos() {
-  try {
-    console.log("⚡ Iniciando migración de montos de pago históricos...");
-    await prisma.$executeRawUnsafe(`
-      UPDATE "Venta" 
-      SET "montoEfectivo" = "total" 
-      WHERE "metodoPago" = 'Efectivo' AND "montoEfectivo" = 0 AND "montoTarjeta" = 0 AND "montoYape" = 0;
-    `);
-    await prisma.$executeRawUnsafe(`
-      UPDATE "Venta" 
-      SET "montoTarjeta" = "total" 
-      WHERE "metodoPago" = 'Tarjeta' AND "montoEfectivo" = 0 AND "montoTarjeta" = 0 AND "montoYape" = 0;
-    `);
-    await prisma.$executeRawUnsafe(`
-      UPDATE "Venta" 
-      SET "montoYape" = "total" 
-      WHERE "metodoPago" = 'Yape' AND "montoEfectivo" = 0 AND "montoTarjeta" = 0 AND "montoYape" = 0;
-    `);
-    console.log("✅ Migración de montos históricos completada exitosamente.");
-  } catch (err) {
-    console.error("❌ Error al ejecutar migración de montos históricos:", err);
-  }
-}
+const PORT = process.env.PORT || 3000;
 
-async function ejecutarMigracionEnsaladas() {
-  try {
-    console.log("⚡ Sincronizando estado de ensaladas/cremas para pedidos activos...");
-    const pedidosActivos = await prisma.pedido.findMany({
-      where: { estado: { in: ['Cocina', 'Servido'] } },
-      include: { items: true }
-    });
-    for (const p of pedidosActivos) {
-      if (p.estadoEnsalada !== 'Listo') {
-        const nuevoEstado = await evaluarEstadoEnsalada(p.items);
-        if (nuevoEstado !== p.estadoEnsalada) {
-          await prisma.pedido.update({
-            where: { id: p.id },
-            data: { estadoEnsalada: nuevoEstado }
-          });
-        }
-      }
-    }
-    console.log("✅ Sincronización de ensaladas/cremas completada.");
-  } catch (err) {
-    console.error("❌ Error al ejecutar migración de ensaladas:", err);
-  }
-}
-
-async function ejecutarMigracionRequiereGuarnicion() {
-  try {
-    const count = await prisma.producto.updateMany({
-      where: {
-        categoria: { in: ['Pollos', 'Pollos a la Brasa', 'Parrillas y Cortes', 'Parrilladas Mixtas', 'Combos', 'Ensaladas'] }
-      },
-      data: { requiereGuarnicion: true }
-    });
-    console.log(`✅ Sincronizado requiereGuarnicion para ${count.count} productos.`);
-  } catch (err) {
-    console.error("❌ Error en migración requiereGuarnicion:", err);
-  }
-}
-
-const PORT = process.env.PORT || 3002;
-app.listen(PORT, async () => {
+app.listen(PORT, () => {
   console.log(`🚀 Backend Fogón Dorado v3 corriendo en http://localhost:${PORT}`);
-  await ejecutarMigracionMontos();
-  await ejecutarMigracionEnsaladas();
-  await ejecutarMigracionRequiereGuarnicion();
+  console.log(`ℹ️ Para ejecutar tareas de mantenimiento/reparación de datos: npm run db:repair`);
 });
 
 
@@ -3726,7 +4352,7 @@ async function enviarAApisunat(venta, itemsRaw) {
 
   // En MODO DEMO simulamos una respuesta exitosa localmente
   if (MODO_DEMO) {
-    const rucEmpresa = process.env.RUC_EMPRESA || "10710311191";
+    const rucEmpresa = "20496009259";
     const numeroStr = String(venta.numero || 1);
     const tipoCompNum = venta.tipoComprobante === 'Factura' ? '01' : '03';
     return {
@@ -3747,17 +4373,16 @@ async function enviarAApisunat(venta, itemsRaw) {
 
   // Formatear items para apisunat.pe
   const formattedItems = items.map((item) => {
-    const cant = item.cant || item.cantidad || 1;
-    const totalItem = item.precio * cant;
+    const totalItem = item.precio * item.cantidad;
     const subtotalItem = totalItem / 1.105;
-    
+
     return {
       unidad_de_medida: "NIU",
-      descripcion: item.nombre || item.producto?.nombre || 'Producto',
-      cantidad: String(cant),
-      valor_unitario: (subtotalItem / cant).toFixed(6),
+      descripcion: item.nombre,
+      cantidad: String(item.cantidad),
+      valor_unitario: (subtotalItem / item.cantidad).toFixed(6), // Recomienda 6 decimales
       porcentaje_igv: "10.5",
-      codigo_tipo_afectacion_igv: "10",
+      codigo_tipo_afectacion_igv: "10", // Gravado - Operación Onerosa
       nombre_tributo: "IGV"
     };
   });
@@ -3806,7 +4431,7 @@ async function enviarAApisunat(venta, itemsRaw) {
     let parsedError;
     try {
       parsedError = JSON.parse(errorText);
-    } catch (e) {}
+    } catch (e) { }
     const errMsg = parsedError?.message || errorText;
     throw new Error(`apisunat.pe Error (${response.status}): ${errMsg}`);
   }
@@ -3894,7 +4519,7 @@ app.post('/api/sunat/reintentar/:id', async (req, res) => {
       numero: venta.numero,
       key: response.payload?.hash || '',
       enlace_del_pdf: response.payload?.pdf?.ticket || response.payload?.pdf?.a4 || '',
-      cadena_para_codigo_qr: `${process.env.RUC_EMPRESA || '10710311191'}|${venta.tipoComprobante === 'Factura' ? '01' : '03'}|${venta.serie}|${String(venta.numero).padStart(4, '0')}|${venta.igv.toFixed(2)}|${venta.total.toFixed(2)}|${new Intl.DateTimeFormat('es-PE', {timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit'}).format(new Date(venta.createdAt))}|${venta.tipoComprobante === 'Factura' ? '6' : (venta.numDocumento?.length === 8 ? '1' : '0')}|${venta.numDocumento || '00000000'}|${response.payload?.hash || ''}`
+      cadena_para_codigo_qr: `${process.env.RUC_EMPRESA || '10710311191'}|${venta.tipoComprobante === 'Factura' ? '01' : '03'}|${venta.serie}|${String(venta.numero).padStart(4, '0')}|${venta.igv.toFixed(2)}|${venta.total.toFixed(2)}|${new Intl.DateTimeFormat('es-PE', { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(venta.createdAt))}|${venta.tipoComprobante === 'Factura' ? '6' : (venta.numDocumento?.length === 8 ? '1' : '0')}|${venta.numDocumento || '00000000'}|${response.payload?.hash || ''}`
     };
 
     const updated = await prisma.venta.update({
@@ -3913,7 +4538,7 @@ app.post('/api/sunat/reintentar/:id', async (req, res) => {
     await prisma.venta.update({
       where: { id },
       data: { estadoSunat: `ERROR:${errorMsg}` }
-    }).catch(() => {});
+    }).catch(() => { });
 
     console.error(`[SUNAT Manual] ❌ Fallo reintento manual Venta #${id}:`, err.message);
     res.status(500).json({ ok: false, error: err.message });
@@ -3974,13 +4599,13 @@ async function procesarVentasPendientes() {
         }
 
         const response = await enviarAApisunat(venta, venta.pedido.items);
-        
+
         const mappedData = {
           serie: venta.serie,
           numero: venta.numero,
           key: response.payload?.hash || '',
           enlace_del_pdf: response.payload?.pdf?.ticket || response.payload?.pdf?.a4 || '',
-          cadena_para_codigo_qr: `${process.env.RUC_EMPRESA || '10710311191'}|${venta.tipoComprobante === 'Factura' ? '01' : '03'}|${venta.serie}|${String(venta.numero).padStart(4, '0')}|${venta.igv.toFixed(2)}|${venta.total.toFixed(2)}|${new Intl.DateTimeFormat('es-PE', {timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit'}).format(new Date(venta.createdAt))}|${venta.tipoComprobante === 'Factura' ? '6' : (venta.numDocumento?.length === 8 ? '1' : '0')}|${venta.numDocumento || '00000000'}|${response.payload?.hash || ''}`
+          cadena_para_codigo_qr: `${process.env.RUC_EMPRESA || '10710311191'}|${venta.tipoComprobante === 'Factura' ? '01' : '03'}|${venta.serie}|${String(venta.numero).padStart(4, '0')}|${venta.igv.toFixed(2)}|${venta.total.toFixed(2)}|${new Intl.DateTimeFormat('es-PE', { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(venta.createdAt))}|${venta.tipoComprobante === 'Factura' ? '6' : (venta.numDocumento?.length === 8 ? '1' : '0')}|${venta.numDocumento || '00000000'}|${response.payload?.hash || ''}`
         };
 
         await prisma.venta.update({
@@ -3991,14 +4616,14 @@ async function procesarVentasPendientes() {
             urlXml: response.payload?.xml || null
           }
         });
-        
+
         console.log(`[Worker SUNAT] ✅ Venta #${venta.id} enviada y ACEPTADA por apisunat.pe.`);
       } catch (err) {
         const errorMsg = err.message.substring(0, 500);
         await prisma.venta.update({
           where: { id: venta.id },
           data: { estadoSunat: `ERROR:${errorMsg}` }
-        }).catch(() => {});
+        }).catch(() => { });
 
         console.error(`[Worker SUNAT] ❌ Intento fallido para Venta #${venta.id}:`, err.message);
       }
