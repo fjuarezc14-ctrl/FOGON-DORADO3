@@ -34,6 +34,36 @@ const BARRA_CATEGORIAS = [
   'Postres',
 ];
 
+function isBarraItem(item) {
+  if (!item) return false;
+  const cat = item.producto?.categoria || item.categoria || '';
+  if (BARRA_CATEGORIAS.includes(cat)) return true;
+  
+  const normName = (item.nombre || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  
+  // Platos de comida (ej: Chicharrón de Pollo/Pescado/Cerdo) van SIEMPRE a Cocina
+  if (normName.includes("chicharron")) return false;
+
+  return (
+    normName.includes("sangria") ||
+    normName.includes("vino") ||
+    normName.includes("chicha morada") ||
+    (normName.includes("chicha") && !normName.includes("chicharron")) ||
+    normName.includes("gaseosa") ||
+    normName.includes("chiki") ||
+    normName.includes("bebida") ||
+    normName.includes("cerveza") ||
+    normName.includes("coctel") ||
+    normName.includes("sour") ||
+    normName.includes("pisco") ||
+    normName.includes("mojito") ||
+    normName.includes("jugo") ||
+    normName.includes("limonada") ||
+    normName.includes("daiquiri") ||
+    normName.includes("chilcano")
+  );
+}
+
 // Helper para parsear la distribución de crédito en ventas con múltiples clientes
 function parsearCreditoSplit(ofertaDescripcion, defaultClienteId, defaultMonto) {
   if (ofertaDescripcion && typeof ofertaDescripcion === 'string') {
@@ -105,20 +135,21 @@ function obtenerMontosVenta(v) {
 
 // ============================================================
 // CONFIGURACIÓN DE PARRILLADAS Y PIQUEOS MIX (COMBO DECOMPOSITION)
+// Búsqueda por Nombre de Producto (Insensible a IDs de base de datos)
 // ============================================================
 const MIX_PRODUCTS_DECOMPOSITION = {
-  // Piqueo Personal (1 persona) -> ID 48
-  48: {
+  piqueo_personal: {
     billingItemName: "Piqueo Personal (1 persona)",
+    altNames: ["piqueo personal", "piqueo personal (1 persona)"],
     components: [
       { nombre: "Pancita, Mollejas, Ubres (4 u c/u)" }
     ],
     reportingItems: [],
     hasDrinkSelections: true
   },
-  // Piqueo 2 Personas -> ID 49
-  49: {
+  piqueo_2_personas: {
     billingItemName: "Piqueo 2 Personas",
+    altNames: ["piqueo 2 personas", "piqueo 2 p", "piqueo 2p"],
     components: [
       { nombre: "Panceta, Mollejas, Ubre, Trompas (4 u c/u)" },
       { nombre: "Anticuchos y Brochetas (2 u c/u)" }
@@ -129,9 +160,9 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // Piqueo Familiar -> ID 50
-  50: {
+  piqueo_familiar: {
     billingItemName: "Piqueo Familiar",
+    altNames: ["piqueo familiar"],
     components: [
       { nombre: "Panceta, Mollejas, Ubre, Trompas (8 u c/u)" },
       { nombre: "Chorizos, Anticuchos, Brochetas (2 u c/u)" }
@@ -141,9 +172,9 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // Piqueo Fogón Dorado -> ID 51
-  51: {
+  piqueo_fogon_dorado: {
     billingItemName: "Piqueo Fogón Dorado",
+    altNames: ["piqueo fogon dorado", "piqueo el fogon dorado"],
     components: [
       { nombre: "Panceta, Molleja, Ubre, Trompa (12 u c/u)" },
       { nombre: "Chorizo, Anticucho, Brocheta, Lengua (4 u c/u)" }
@@ -154,9 +185,9 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // Parrillada Mixta Personal -> ID 52
-  52: {
+  parrillada_mixta_personal: {
     billingItemName: "Parrillada Mixta Personal",
+    altNames: ["parrillada mixta personal", "parrilla mixta personal"],
     components: [
       { nombre: "Res y Pollo (150g c/u)" },
       { nombre: "Chorizo (1 u)" }
@@ -167,9 +198,9 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // Parrillada Mixta 2 Personas -> ID 53
-  53: {
+  parrillada_mixta_2_personas: {
     billingItemName: "Parrillada Mixta 2 Personas",
+    altNames: ["parrillada mixta 2 personas", "parrilla mixta 2 personas", "parrillada mixta 2p", "parrilla mixta 2p"],
     components: [
       { nombre: "Res, Pollo y Cerdo (150g c/u)" },
       { nombre: "Mollejas y Ubre (4 u c/u)" },
@@ -180,9 +211,9 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // Parrillada Mixta 3 Personas -> ID 54
-  54: {
+  parrillada_mixta_3_personas: {
     billingItemName: "Parrillada Mixta 3 Personas",
+    altNames: ["parrillada mixta 3 personas", "parrilla mixta 3 personas", "parrillada mixta 3p", "parrilla mixta 3p"],
     components: [
       { nombre: "Res, Pollo y Cerdo (150g c/u)" },
       { nombre: "Chorizos (3 u)" }
@@ -194,9 +225,9 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // Parrillada Fina Familiar (5 personas) -> ID 55
-  55: {
+  parrillada_fina_familiar: {
     billingItemName: "Parrillada Fina Familiar (5 personas)",
+    altNames: ["parrillada fina familiar", "parrillada fina familiar (5 personas)", "parrilla fina familiar"],
     components: [
       { nombre: "Res, Pollo y Cerdo (300g c/u)" },
       { nombre: "Chorizos (4 u)" }
@@ -207,9 +238,9 @@ const MIX_PRODUCTS_DECOMPOSITION = {
     ],
     hasDrinkSelections: true
   },
-  // Parrillada Fogón Dorado (8-10 personas) -> ID 56
-  56: {
+  parrillada_fogon_dorado: {
     billingItemName: "Parrillada Fogón Dorado (8-10 personas)",
+    altNames: ["parrillada fogon dorado", "parrillada fogon dorado (8-10 personas)", "parrilla fogon dorado"],
     components: [
       { nombre: "Lomo Fino y Cerdo (300g c/u)" },
       { nombre: "Filete Pollo (300g)" },
@@ -228,17 +259,35 @@ const MIX_PRODUCTS_DECOMPOSITION = {
 function parseSelectionsFromNotes(notas) {
   const selections = {};
   if (!notas) return selections;
+
+  const addKV = (k, v) => {
+    if (!k || !v) return;
+    const cleanK = k.trim();
+    const cleanV = v.trim();
+    selections[cleanK] = cleanV;
+    const normK = cleanK.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    selections[normK] = cleanV;
+  };
+
   const matches = notas.match(/\[([^\]:]+):\s*([^\]]+)\]/g);
   if (matches) {
     matches.forEach(m => {
       const parts = m.slice(1, -1).split(':');
       if (parts.length >= 2) {
-        const key = parts[0].trim();
-        const val = parts[1].trim();
-        selections[key] = val;
+        addKV(parts[0], parts[1]);
       }
     });
   }
+
+  const partsDot = notas.split('·');
+  partsDot.forEach(p => {
+    const clean = p.replace(/[\[\]]/g, '').trim();
+    if (clean.includes(':')) {
+      const idx = clean.indexOf(':');
+      addKV(clean.substring(0, idx), clean.substring(idx + 1));
+    }
+  });
+
   return selections;
 }
 
@@ -246,7 +295,15 @@ async function expandPedidoItemsForDb(itemsList) {
   const expandedList = [];
   for (const i of itemsList) {
     const prodId = parseInt(i.productoId || i.id);
-    const decomp = MIX_PRODUCTS_DECOMPOSITION[prodId];
+    const prodNombre = (i.nombre || '').trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    
+    // Búsqueda por Nombre en lugar de ID numérico para evitar descomposiciones erróneas
+    const decomp = Object.values(MIX_PRODUCTS_DECOMPOSITION).find(d => {
+      const mainNameNorm = d.billingItemName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      if (mainNameNorm === prodNombre) return true;
+      if (d.altNames && d.altNames.some(alt => alt.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") === prodNombre)) return true;
+      return false;
+    });
 
     if (decomp) {
       const parsedNotes = parseSelectionsFromNotes(i.notas);
@@ -1202,9 +1259,9 @@ app.get('/api/pedidos/cocina', async (req, res) => {
       hora: p.createdAt.toLocaleTimeString('es-PE', {
         hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima',
       }),
-      // Filtrar bebidas: cocina solo ve lo que prepara
+      // Filtrar bebidas: cocina solo ve lo que prepara (excluyendo barra)
       items: p.items
-        .filter(i => !i.historial && !BARRA_CATEGORIAS.includes(i.producto?.categoria))
+        .filter(i => !i.historial && !isBarraItem(i))
         .map(i => ({
           id: i.id,
           nombre: i.nombre,
@@ -1258,9 +1315,9 @@ app.get('/api/pedidos/barra', async (req, res) => {
       hora: p.createdAt.toLocaleTimeString('es-PE', {
         hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima',
       }),
-      // Barra solo ve items de categorías de barra que no se han despachado (historial === false)
+      // Barra solo ve items de barra que no se han despachado (historial === false)
       items: p.items
-        .filter(i => !i.historial && BARRA_CATEGORIAS.includes(i.producto?.categoria))
+        .filter(i => !i.historial && isBarraItem(i))
         .map(i => ({
           nombre: i.nombre,
           cant: i.cantidad,
