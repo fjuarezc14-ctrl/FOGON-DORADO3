@@ -1978,7 +1978,7 @@ export default function ReportesPage() {
         }
         @media print {
           /* Ocultar elementos de navegación y fondos */
-          aside, header, #sidebar-menu, #sidebar-backdrop, button, nav, .shrink-0, .no-print {
+          aside, header, #sidebar-menu, #sidebar-backdrop, button, nav, .no-print {
             display: none !important;
           }
           /* Ocultar el resto del contenido de la página excepto el modal a imprimir */
