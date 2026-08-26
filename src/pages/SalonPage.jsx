@@ -322,7 +322,7 @@ export default function SalonPage({ currentUser }) {
       nameNorm.includes('1/4') || nameNorm.includes('cuarto') || 
       nameNorm.includes('1/8') || nameNorm.includes('octavo');
 
-    if (prod && prod.requiereGuarnicion && !isCuartoOOctavo) {
+    if (prod && prod.requiereGuarnicion) {
       steps.push({
         name: "Cantidad de Ensaladas",
         key: "cantidad_ensaladas",
@@ -628,7 +628,7 @@ export default function SalonPage({ currentUser }) {
       nameNorm.includes('1/4') || nameNorm.includes('cuarto') || 
       nameNorm.includes('1/8') || nameNorm.includes('octavo');
 
-    if (hasComboConfig || isVirtualGroup || requiereGuarnicion || isMenuCategory || isPolloEntero || isMedioPollo || (prod.requiereGuarnicion && !isCuartoOOctavo)) {
+    if (hasComboConfig || isVirtualGroup || requiereGuarnicion || isMenuCategory || isPolloEntero || isMedioPollo || prod.requiereGuarnicion) {
       setSelectedProduct(prod);
       setCurrentStepIdx(0);
       setSelections({});
@@ -637,7 +637,7 @@ export default function SalonPage({ currentUser }) {
       return;
     }
     
-    agregarAlTicketDirecto(prod, isCuartoOOctavo ? '1 Ensalada' : '');
+    agregarAlTicketDirecto(prod, '');
   };
 
   const agregarAlTicketDirecto = (prod, notas = '') => {

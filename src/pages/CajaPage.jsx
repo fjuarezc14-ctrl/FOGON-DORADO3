@@ -1539,7 +1539,7 @@ export default function CajaPage({ currentUser }) {
       nameNorm.includes('1/4') || nameNorm.includes('cuarto') || 
       nameNorm.includes('1/8') || nameNorm.includes('octavo');
 
-    if (prod && prod.requiereGuarnicion && !isCuartoOOctavo) {
+    if (prod && prod.requiereGuarnicion) {
       steps.push({
         name: "Cantidad de Ensaladas",
         key: "cantidad_ensaladas",
@@ -1836,14 +1836,14 @@ export default function CajaPage({ currentUser }) {
       nameNorm.includes('1/4') || nameNorm.includes('cuarto') || 
       nameNorm.includes('1/8') || nameNorm.includes('octavo');
 
-    if (hasComboConfig || isVirtualGroup || requiereGuarnicion || isMenuCategory || isPolloEntero || isMedioPollo || (prod.requiereGuarnicion && !isCuartoOOctavo)) {
+    if (hasComboConfig || isVirtualGroup || requiereGuarnicion || isMenuCategory || isPolloEntero || isMedioPollo || prod.requiereGuarnicion) {
       setSelectedProduct(prod);
       setSelections({});
       setCurrentStepIdx(0);
       setAdditionalNotes('');
       setOptionsModalOpen(true);
     } else {
-      agregarItemDeliveryDirecto(prod, isCuartoOOctavo ? '1 Ensalada' : null);
+      agregarItemDeliveryDirecto(prod, null);
     }
   };
 
