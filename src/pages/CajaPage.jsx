@@ -1534,12 +1534,17 @@ export default function CajaPage({ currentUser }) {
 
   const getProductSteps = (prod, currentSelections = {}) => {
     const steps = getProductStepsBase(prod, currentSelections);
-    const nameNorm = (prod && prod.nombre || '').toLowerCase();
+    if (!prod) return steps;
+
+    const nameNorm = (prod.nombre || '').toLowerCase();
     const isCuartoOOctavo = 
       nameNorm.includes('1/4') || nameNorm.includes('cuarto') || 
       nameNorm.includes('1/8') || nameNorm.includes('octavo');
 
-    if (prod && prod.requiereGuarnicion) {
+    const categoriasConEnsalada = ['Pollos', 'Pollos a la Brasa', 'Parrillas y Cortes', 'Parrilladas Mixtas', 'Porciones y Piqueos', 'Combos', 'Ensaladas'];
+    const requiereEnsalada = prod.requiereGuarnicion || (prod.categoria && categoriasConEnsalada.includes(prod.categoria));
+
+    if (requiereEnsalada && !isCuartoOOctavo) {
       steps.push({
         name: "Cantidad de Ensaladas",
         key: "cantidad_ensaladas",
