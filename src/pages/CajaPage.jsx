@@ -5114,7 +5114,7 @@ export default function CajaPage({ currentUser }) {
               <div id="cierre-imprimible" className="bg-amber-50/70 border-2 border-dashed border-amber-200 rounded-2xl p-5 font-mono text-slate-800 text-xs shadow-sm mb-6 flex flex-col">
                 <div className="text-center border-b border-dashed border-slate-300 pb-3 mb-4">
                   <h4 className="font-black text-sm text-slate-900 uppercase">NUEVO FOGÓN DORADO E.I.R.L.</h4>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">Av. Hoyos Rubio Nro. 338 · RUC: 10710311191</p>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">Jr. Amalia Puga 821 · RUC: 10710311191</p>
                   <p className="text-[10px] text-slate-400 font-bold mt-1">CIERRE DE TURNO · ARQUEO DIARIO</p>
                 </div>
 
@@ -5732,7 +5732,7 @@ export default function CajaPage({ currentUser }) {
                         type="text"
                         value={editClienteDireccion}
                         onChange={e => setEditClienteDireccion(e.target.value)}
-                        placeholder="Ej. Av. Hoyos Rubio Nro. 338"
+                        placeholder="Ej. Jr. Amalia Puga 821"
                         className="w-full bg-white border border-slate-200 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none transition-all uppercase"
                       />
                     </div>
@@ -5905,7 +5905,7 @@ export default function CajaPage({ currentUser }) {
               
               <div className="text-center font-bold" style={{ fontSize: '14px', marginBottom: '2px' }}>Nuevo Fogón Dorado E.I.R.L.</div>
               <div className="text-center text-[10px] leading-tight mb-2">
-                Av. Hoyos Rubio Nro. 338, Pueblo Nuevo, Cajamarca<br />
+                Jr. Amalia Puga 821, Cajamarca<br />
                 R.U.C. N° 10710311191
               </div>
               

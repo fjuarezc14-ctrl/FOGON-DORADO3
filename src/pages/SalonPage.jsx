@@ -2232,7 +2232,7 @@ export default function SalonPage({ currentUser }) {
               <div id="precuenta-ticket-print" className="bg-amber-50/70 border-2 border-dashed border-amber-200 rounded-2xl p-5 font-mono text-slate-800 text-xs shadow-sm mb-6 flex flex-col">
                 <div className="text-center border-b border-dashed border-slate-300 pb-3 mb-4">
                   <h4 className="font-black text-sm text-slate-900 uppercase">NUEVO FOGÓN DORADO E.I.R.L.</h4>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">Av. Hoyos Rubio Nro. 338 · RUC: 10710311191</p>
+                  <p className="text-[10px] text-slate-500 font-bold uppercase mt-0.5">Jr. Amalia Puga 821 · RUC: 10710311191</p>
                   <p className="text-[10px] text-slate-400 font-bold mt-1">PRECUENTA DE CONSUMO (NO VALIDO COMO COMPROBANTE)</p>
                 </div>
 

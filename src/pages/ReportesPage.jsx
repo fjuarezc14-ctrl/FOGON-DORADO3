@@ -1388,7 +1388,7 @@ export default function ReportesPage() {
             <div id="comprobante-sunat-ticket-print" className="p-6 overflow-y-auto custom-scrollbar flex-1 bg-white text-slate-900 font-mono text-xs leading-relaxed">
               <div className="text-center font-bold" style={{ fontSize: '14px', marginBottom: '2px' }}>Nuevo Fogón Dorado E.I.R.L.</div>
               <div className="text-center text-[10px] leading-tight mb-2">
-                Av. Hoyos Rubio Nro. 338, Pueblo Nuevo, Cajamarca<br />
+                Jr. Amalia Puga 821, Cajamarca<br />
                 R.U.C. N° 10710311191
               </div>
               
