@@ -1730,6 +1730,15 @@ export default function CajaPage({ currentUser }) {
             { label: "Gaseosa 1/2 Litro", value: "Gaseosa 1/2 Lt" },
             { label: "Chicha Morada 1/2 Litro", value: "Chicha Morada - 1/2 Lt" }
           ]
+        },
+        {
+          name: "Bebida Adicional (Opcional - Un Litro)",
+          key: "bebida_adicional",
+          options: [
+            { label: "Gaseosa 1 Litro", value: "Gaseosa 1 Lt" },
+            { label: "Chicha Morada 1 Litro", value: "Chicha Morada - 1 Lt" },
+            { label: "Omitir (Sin Bebida Adicional)", value: "Sin Bebida Adicional" }
+          ]
         }
       ];
     }

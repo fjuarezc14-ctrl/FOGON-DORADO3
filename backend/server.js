@@ -529,14 +529,39 @@ async function evaluarEstadoEnsalada(itemsList) {
     const categoriasGuarnicion = ['Pollos', 'Pollos a la Brasa', 'Parrillas y Cortes', 'Parrilladas Mixtas', 'Combos', 'Ensaladas'];
 
     for (const item of itemsList) {
+      const prodNombre = (item.nombre || '').trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+      // 1. Verificar si el plato es un combo / piqueo / parrillada por nombre
+      const isDecomp = Object.values(MIX_PRODUCTS_DECOMPOSITION).some(d => {
+        const mainNameNorm = d.billingItemName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+        if (mainNameNorm === prodNombre) return true;
+        if (d.altNames && d.altNames.some(alt => alt.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") === prodNombre)) return true;
+        return false;
+      });
+
+      if (isDecomp) {
+        tieneEnsaladaPendiente = true;
+        break;
+      }
+
+      // 2. Buscar producto en BD por nombre o ID
       const prodId = parseInt(item.productoId || item.id);
       let prod = null;
-      if (prodId) {
+
+      if (item.nombre) {
+        prod = await prisma.producto.findFirst({
+          where: { nombre: { equals: String(item.nombre), mode: 'insensitive' } },
+          select: { requiereGuarnicion: true, categoria: true }
+        });
+      }
+
+      if (!prod && !isNaN(prodId)) {
         prod = await prisma.producto.findUnique({
           where: { id: prodId },
           select: { requiereGuarnicion: true, categoria: true }
         });
       }
+
       const cat = item.categoria || prod?.categoria;
       const requiereG = prod ? prod.requiereGuarnicion : false;
 
