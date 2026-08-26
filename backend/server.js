@@ -1404,8 +1404,19 @@ app.get('/api/pedidos/ensaladas', async (req, res) => {
       }),
       items: p.items
         .filter(i => {
+          const prodNombre = (i.nombre || '').trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+          // 1. Verificar si el ítem es un combo / piqueo / parrillada por su nombre
+          const isDecomp = Object.values(MIX_PRODUCTS_DECOMPOSITION).some(d => {
+            const mainNameNorm = d.billingItemName.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+            if (mainNameNorm === prodNombre) return true;
+            if (d.altNames && d.altNames.some(alt => alt.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") === prodNombre)) return true;
+            return false;
+          });
+
+          const tieneNotaEnsalada = i.notas && i.notas.toLowerCase().includes('ensalada');
           const esBarra = BARRA_CATEGORIAS.includes(i.producto?.categoria);
-          const llevaGuarnicion = i.producto?.requiereGuarnicion || (i.producto?.categoria && categoriasGuarnicion.includes(i.producto.categoria));
+          const llevaGuarnicion = isDecomp || tieneNotaEnsalada || i.producto?.requiereGuarnicion || (i.producto?.categoria && categoriasGuarnicion.includes(i.producto.categoria));
           
           // Excluir componentes desglosados internos (precio 0 sin notas) e ítems de reporte interno
           const esDesgloseInterno = i.precio === 0 && !i.notas;
@@ -1419,7 +1430,7 @@ app.get('/api/pedidos/ensaladas', async (req, res) => {
           precio: i.precio,
           notas: i.notas || null,
         })),
-    }));
+    })).filter(p => p.items.length > 0);
 
     res.json(formateados);
   } catch (err) {
