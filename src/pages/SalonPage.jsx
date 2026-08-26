@@ -444,12 +444,11 @@ export default function SalonPage({ currentUser }) {
       return baseSteps;
     }
     
-    // 4. Parrilladas y Piqueos Mix con Opciones de Bebidas
-    const prodId = parseInt(prod.id);
-    const isParrillaPersonal = prodId === 48 || prodId === 52;
-    const isParrilla2P = prodId === 49 || prodId === 53;
-    const isParrilla3P = prodId === 50 || prodId === 54;
-    const isParrillaFina = prodId === 51 || prodId === 55 || prodId === 56;
+    const nameNorm = (prod && prod.nombre || '').toLowerCase();
+    const isParrillaPersonal = nameNorm.includes('parrillada') && nameNorm.includes('personal');
+    const isParrilla2P       = nameNorm.includes('parrillada') && (nameNorm.includes('2 persona') || nameNorm.includes('2p'));
+    const isParrilla3P       = nameNorm.includes('parrillada') && (nameNorm.includes('3 persona') || nameNorm.includes('3p'));
+    const isParrillaFina     = nameNorm.includes('parrillada') && (nameNorm.includes('fina') || nameNorm.includes('familiar') || nameNorm.includes('fogón dorado') || nameNorm.includes('5 persona'));
 
     if (isParrillaPersonal) {
       return [
@@ -576,9 +575,9 @@ export default function SalonPage({ currentUser }) {
       ];
     }
 
-    // 4.5. Pollos a la Brasa (Enteros y Medios que no sean "Solo")
-    const isPolloEntero = prodId === 1 || prodId === 10 || prodId === 16;
-    const isMedioPollo = prodId === 2 || prodId === 11 || prodId === 17;
+    const nameNormCheck = (prod && prod.nombre || '').toLowerCase();
+    const isPolloEntero = (nameNormCheck.includes('1 pollo') || nameNormCheck.includes('un pollo')) && !nameNormCheck.includes('1/2') && !nameNormCheck.includes('1/4') && !nameNormCheck.includes('1/8');
+    const isMedioPollo = nameNormCheck.includes('1/2 pollo');
 
     if (isPolloEntero) {
       return [];
@@ -619,14 +618,9 @@ export default function SalonPage({ currentUser }) {
       ['Parrillas y Cortes', 'Parrilladas Mixtas', 'Porciones y Piqueos'].includes(prod.categoria) && 
       !prod.nombre.toLowerCase().includes('solo');
 
-    const prodId = parseInt(prod.id);
-    const isPolloEntero = prodId === 1 || prodId === 10 || prodId === 16;
-    const isMedioPollo = prodId === 2 || prodId === 11 || prodId === 17;
-
-    const nameNorm = (prod.nombre || '').toLowerCase();
-    const isCuartoOOctavo = 
-      nameNorm.includes('1/4') || nameNorm.includes('cuarto') || 
-      nameNorm.includes('1/8') || nameNorm.includes('octavo');
+    const nameNorm = (prod && prod.nombre || '').toLowerCase();
+    const isPolloEntero = (nameNorm.includes('1 pollo') || nameNorm.includes('un pollo')) && !nameNorm.includes('1/2') && !nameNorm.includes('1/4') && !nameNorm.includes('1/8');
+    const isMedioPollo = nameNorm.includes('1/2 pollo');
 
     if (hasComboConfig || isVirtualGroup || requiereGuarnicion || isMenuCategory || isPolloEntero || isMedioPollo || prod.requiereGuarnicion) {
       setSelectedProduct(prod);
