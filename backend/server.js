@@ -313,6 +313,20 @@ async function expandPedidoItemsForDb(itemsList) {
         `🥔 ACOMPAÑAMIENTO: ${acompanamiento}`
       ];
 
+      // Conservar el número de ensaladas o notas de ensaladas enviadas desde la carta
+      if (i.notas) {
+        const partes = i.notas.split(' · ');
+        partes.forEach(p => {
+          const pTrim = p.trim();
+          const pLower = pTrim.toLowerCase();
+          if (pLower.includes('ensalada') && !pLower.includes('sin ensalada')) {
+            if (!detailedGrillNotesArray.includes(pTrim)) {
+              detailedGrillNotesArray.push(pTrim);
+            }
+          }
+        });
+      }
+
       if (i.notas && i.notas.includes("(Nota:")) {
         const customNoteMatch = i.notas.match(/\(Nota:\s*([^\)]+)\)/);
         if (customNoteMatch && customNoteMatch[1]) {
