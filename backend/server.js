@@ -1502,15 +1502,12 @@ app.patch('/api/pedidos/:id/preparar', async (req, res) => {
 
     if (!pedido) return res.status(404).json({ error: 'Pedido no encontrado' });
 
-    // Filtrar los items que corresponden a la sección
+    // Filtrar los items que corresponden únicamente a la sección (cocina o barra)
     const itemsAActualizar = pedido.items.filter(i => {
-      // Si es delivery/llevar, marcamos todos los items como listos para que no dependa de barra
-      if (pedido.tipoEntrega === 'llevar' || pedido.tipoEntrega === 'delivery') return true;
-
-      const esItemBarra = BARRA_CATEGORIAS.includes(i.producto?.categoria);
+      const esItemBarra = isBarraItem(i);
       if (seccion === 'barra') return esItemBarra;
       if (seccion === 'cocina') return !esItemBarra;
-      return false;
+      return true;
     });
 
     // Marcar items como historial
