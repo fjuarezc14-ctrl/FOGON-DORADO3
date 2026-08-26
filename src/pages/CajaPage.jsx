@@ -1662,10 +1662,11 @@ export default function CajaPage({ currentUser }) {
     }
     
     const nameNorm = (prod && prod.nombre || '').toLowerCase();
-    const isParrillaPersonal = nameNorm.includes('parrillada') && nameNorm.includes('personal');
-    const isParrilla2P       = nameNorm.includes('parrillada') && (nameNorm.includes('2 persona') || nameNorm.includes('2p'));
-    const isParrilla3P       = nameNorm.includes('parrillada') && (nameNorm.includes('3 persona') || nameNorm.includes('3p'));
-    const isParrillaFina     = nameNorm.includes('parrillada') && (nameNorm.includes('fina') || nameNorm.includes('familiar') || nameNorm.includes('fogón dorado') || nameNorm.includes('5 persona'));
+    const isMixDish = nameNorm.includes('parrillada') || nameNorm.includes('parrilla') || nameNorm.includes('piqueo');
+    const isParrillaPersonal = isMixDish && (nameNorm.includes('personal') || nameNorm.includes('1 persona'));
+    const isParrilla2P       = isMixDish && (nameNorm.includes('2 persona') || nameNorm.includes('2p') || nameNorm.includes('2 p') || nameNorm.includes('2 pers'));
+    const isParrilla3P       = isMixDish && (nameNorm.includes('3 persona') || nameNorm.includes('3p') || nameNorm.includes('3 p') || nameNorm.includes('3 pers'));
+    const isParrillaFina     = isMixDish && (nameNorm.includes('fina') || nameNorm.includes('familiar') || nameNorm.includes('fogón dorado') || nameNorm.includes('fogon dorado') || nameNorm.includes('5 persona') || nameNorm.includes('8-10') || nameNorm.includes('8 a 10'));
 
     if (isParrillaPersonal) {
       return [
