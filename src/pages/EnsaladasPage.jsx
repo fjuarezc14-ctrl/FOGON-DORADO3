@@ -20,6 +20,22 @@ const parseDeliveryInfo = (code) => {
   };
 };
 
+const cleanNotasEnsalada = (notas) => {
+  if (!notas) return null;
+
+  const partes = notas.split(' · ');
+  const partesEnsalada = partes.filter(p => {
+    const pLower = p.toLowerCase();
+    if (pLower.includes('acompañamiento') || pLower.includes('guarnicion') || pLower.includes('bebida') || pLower.includes('entrada') || pLower.includes('fondo')) {
+      return false;
+    }
+    return true;
+  });
+
+  if (partesEnsalada.length === 0) return null;
+  return partesEnsalada.join(' · ');
+};
+
 export default function EnsaladasPage() {
   const [pedidos, setPedidos] = useState([]);
   const [horaLocal, setHoraLocal] = useState('');
@@ -179,13 +195,17 @@ export default function EnsaladasPage() {
                               </span>
                             </div>
                           </div>
-                          {item.notas && (
-                            <div className="ml-7 mt-1">
-                              <span className="inline-block bg-emerald-950 border border-emerald-800/80 text-emerald-300 font-bold text-[10px] px-2 py-0.5 rounded-lg uppercase tracking-wide">
-                                📋 NOTA: {item.notas}
-                              </span>
-                            </div>
-                          )}
+                          {(() => {
+                            const notaLimpia = cleanNotasEnsalada(item.notas);
+                            if (!notaLimpia) return null;
+                            return (
+                              <div className="ml-7 mt-1">
+                                <span className="inline-block bg-emerald-950 border border-emerald-800/80 text-emerald-300 font-bold text-[10px] px-2 py-0.5 rounded-lg uppercase tracking-wide">
+                                  📋 {notaLimpia}
+                                </span>
+                              </div>
+                            );
+                          })()}
                         </div>
                       ))
                     )}
