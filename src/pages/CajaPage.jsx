@@ -1859,32 +1859,34 @@ export default function CajaPage({ currentUser }) {
   };
 
   const agregarItemDeliveryDirecto = (prod, notas = null) => {
-    const idx = itemsDelivery.findIndex(i => i.id === String(prod.id) && i.notas === notas);
-    const cantEnTicket = idx >= 0 ? itemsDelivery[idx].cant : 0;
-    
-    // Validar stock si es limitado
-    if (prod.tipoStock === 'limitado' && cantEnTicket >= prod.stock) {
-      alert(`⚠️ Stock agotado. Solo quedan ${prod.stock} unidades de "${prod.nombre}".`);
-      return;
-    }
+    setItemsDelivery(prevItems => {
+      const idx = prevItems.findIndex(i => i.id === String(prod.id) && i.notas === notas);
+      const cantEnTicket = idx >= 0 ? prevItems[idx].cant : 0;
+      
+      // Validar stock si es limitado
+      if (prod.tipoStock === 'limitado' && cantEnTicket >= prod.stock) {
+        alert(`⚠️ Stock agotado. Solo quedan ${prod.stock} unidades de "${prod.nombre}".`);
+        return prevItems;
+      }
 
-    const precioFinal = prod.precioOferta !== null && prod.precioOferta !== undefined ? prod.precioOferta : prod.precio;
+      const precioFinal = prod.precioOferta !== null && prod.precioOferta !== undefined ? prod.precioOferta : prod.precio;
 
-    if (idx >= 0) {
-      const nuevo = [...itemsDelivery];
-      nuevo[idx] = { ...nuevo[idx], cant: nuevo[idx].cant + 1 };
-      setItemsDelivery(nuevo);
-    } else {
-      setItemsDelivery([...itemsDelivery, { 
-        id: String(prod.id), 
-        nombre: prod.nombre, 
-        precio: precioFinal, 
-        cant: 1,
-        ofertaNombre: prod.ofertaNombre,
-        precioOriginal: prod.precio,
-        notas: notas
-      }]);
-    }
+      if (idx >= 0) {
+        const nuevo = [...prevItems];
+        nuevo[idx] = { ...nuevo[idx], cant: nuevo[idx].cant + 1 };
+        return nuevo;
+      } else {
+        return [...prevItems, { 
+          id: String(prod.id), 
+          nombre: prod.nombre, 
+          precio: precioFinal, 
+          cant: 1,
+          ofertaNombre: prod.ofertaNombre,
+          precioOriginal: prod.precio,
+          notas: notas
+        }];
+      }
+    });
   };
 
   const alterarItemDelivery = (idx, op) => {
