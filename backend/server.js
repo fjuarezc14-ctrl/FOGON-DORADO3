@@ -1835,6 +1835,34 @@ app.patch('/api/pedidos/:id/cancelar-item', async (req, res) => {
       return res.status(400).json({ error: 'La cantidad a cancelar supera la cantidad pedida.' });
     }
 
+    // Registrar alerta roja para Cocina o Barra
+    const mesaInfo = pedido.mesaId 
+      ? `Mesa ${pedido.mesa?.numero || pedido.mesaId}` 
+      : (pedido.codigoPedidosYa ? `🛵 ${pedido.codigoPedidosYa}` : 'Para Llevar/Delivery');
+    
+    const esItemBarra = isBarraItem(item);
+    const alertObj = {
+      id: `cancel-${Date.now()}-${pedido.id}-${Math.random().toString(36).substr(2, 4)}`,
+      pedidoId: pedido.id,
+      tipo: 'CANCELACIÓN',
+      items: [{
+        nombre: item.nombre,
+        cantidad: cantidadACancelar,
+        precio: item.precio,
+        notas: item.notas || null
+      }],
+      mesaInfo,
+      canceladoPor: canceladoPor || 'Administrador',
+      motivo: motivo || 'Cancelación de ítem',
+      canceladoEn: new Date().toISOString(),
+    };
+
+    if (esItemBarra) {
+      cancelacionesBarra.push(alertObj);
+    } else {
+      cancelacionesCocina.push(alertObj);
+    }
+
     // Calcular nueva cantidad
     const nuevaCantidad = item.cantidad - cantidadACancelar;
 
@@ -2244,6 +2272,50 @@ app.put('/api/pedidos/llevar/:id', async (req, res) => {
 
     if (pedido.estado !== 'Cocina' && pedido.estado !== 'Servido') {
       return res.status(400).json({ error: 'No se puede modificar un pedido que ya fue cobrado o cancelado.' });
+    }
+
+    // Registrar alerta de Modificación para Cocina y Barra
+    const mesaInfoAlert = codigoPedidosYa 
+      ? (codigoPedidosYa.startsWith('DELIVERY -') ? `📞 ${codigoPedidosYa}` : (codigoPedidosYa.startsWith('LLEVAR -') ? `🛍️ ${codigoPedidosYa}` : `🛵 ${codigoPedidosYa}`))
+      : 'Para Llevar / Delivery';
+
+    const oldItemsCocina = pedido.items.filter(i => !(i.precio === 0 && !i.notas) && !isBarraItem(i));
+    const oldItemsBarra = pedido.items.filter(i => !(i.precio === 0 && !i.notas) && isBarraItem(i));
+
+    if (oldItemsCocina.length > 0) {
+      cancelacionesCocina.push({
+        id: `mod-${Date.now()}-${id}`,
+        pedidoId: id,
+        tipo: 'MODIFICACIÓN',
+        items: oldItemsCocina.map(i => ({
+          nombre: i.nombre,
+          cantidad: i.cantidad,
+          precio: i.precio,
+          notas: i.notas || null
+        })),
+        mesaInfo: mesaInfoAlert,
+        canceladoPor: cajero || 'Caja',
+        motivo: 'Pedido modificado en Caja',
+        canceladoEn: new Date().toISOString(),
+      });
+    }
+
+    if (oldItemsBarra.length > 0) {
+      cancelacionesBarra.push({
+        id: `mod-${Date.now()}-${id}`,
+        pedidoId: id,
+        tipo: 'MODIFICACIÓN',
+        items: oldItemsBarra.map(i => ({
+          nombre: i.nombre,
+          cantidad: i.cantidad,
+          precio: i.precio,
+          notas: i.notas || null
+        })),
+        mesaInfo: mesaInfoAlert,
+        canceladoPor: cajero || 'Caja',
+        motivo: 'Pedido modificado en Caja',
+        canceladoEn: new Date().toISOString(),
+      });
     }
 
     // 2. Ejecutar actualización en una transacción

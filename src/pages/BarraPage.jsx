@@ -162,43 +162,67 @@ export default function BarraPage() {
           (permanecen hasta que el barman presione "Entendido")
       ═══════════════════════════════════════════════════ */}
       {cancelaciones.length > 0 && (
-        <div className="bg-red-950 border-b-4 border-red-655 px-4 py-3 space-y-3 shrink-0 z-20">
-          {cancelaciones.map((c) => (
-            <div
-              key={c.id}
-              className="flex items-start gap-4 bg-red-900/80 border border-red-500 rounded-2xl p-4 shadow-2xl"
-              style={{ animation: 'pulse 1.5s ease-in-out 3' }}
-            >
-              <div className="shrink-0 mt-0.5">
-                <AlertTriangle className="w-8 h-8 text-red-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-red-200 font-black text-sm uppercase tracking-wider flex items-center gap-2 mb-1">
-                  <XCircle className="w-4 h-4 text-red-404 shrink-0" />
-                  BEBIDA CANCELADA — {c.mesaInfo}
-                </p>
-                <p className="text-red-400 text-[10px] font-bold uppercase tracking-widest mb-2">
-                  Cancelado por: {c.canceladoPor} · {new Date(c.canceladoEn).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima' })}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {c.items.map((item, i) => (
-                    <span key={i} className="inline-flex items-center gap-1.5 bg-red-800 border border-red-600 text-red-100 font-black text-xs px-3 py-1.5 rounded-xl">
-                      <span className="text-red-300">{item.cantidad}×</span>
-                      {item.nombre}
-                      <span className="text-red-400 font-mono">S/ {parseFloat(item.precio || 0).toFixed(2)}</span>
-                      {item.notas && <span className="text-red-300 italic">· {item.notas}</span>}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <button
-                onClick={() => dismissCancelacion(c.id)}
-                className="shrink-0 px-4 py-2.5 bg-red-655 hover:bg-red-500 active:bg-red-700 text-white font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg border border-red-400"
+        <div className="px-4 py-3 space-y-3 shrink-0 z-20">
+          {cancelaciones.map((c) => {
+            const esModificacion = c.tipo === 'MODIFICACIÓN';
+            return (
+              <div
+                key={c.id}
+                className={`flex items-start gap-4 border rounded-2xl p-4 shadow-2xl ${
+                  esModificacion
+                    ? 'bg-amber-950/90 border-amber-500 text-amber-100'
+                    : 'bg-red-900/80 border-red-500 text-red-100'
+                }`}
+                style={{ animation: 'pulse 1.5s ease-in-out 3' }}
               >
-                ✓ Entendido
-              </button>
-            </div>
-          ))}
+                <div className="shrink-0 mt-0.5">
+                  <AlertTriangle className={`w-8 h-8 ${esModificacion ? 'text-amber-400' : 'text-red-400'}`} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`font-black text-sm uppercase tracking-wider flex items-center gap-2 mb-1 ${esModificacion ? 'text-amber-200' : 'text-red-200'}`}>
+                    {esModificacion ? (
+                      <>
+                        <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                        ⚠️ BEBIDAS MODIFICADAS EN CAJA — {c.mesaInfo}
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="w-4 h-4 text-red-400 shrink-0" />
+                        BEBIDA CANCELADA — {c.mesaInfo}
+                      </>
+                    )}
+                  </p>
+                  <p className={`text-[10px] font-bold uppercase tracking-widest mb-2 ${esModificacion ? 'text-amber-400' : 'text-red-400'}`}>
+                    {esModificacion ? 'Modificado por' : 'Cancelado por'}: {c.canceladoPor} · {new Date(c.canceladoEn).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima' })}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {c.items.map((item, i) => (
+                      <span key={i} className={`inline-flex items-center gap-1.5 font-black text-xs px-3 py-1.5 rounded-xl border ${
+                        esModificacion 
+                          ? 'bg-amber-900/80 border-amber-600 text-amber-100'
+                          : 'bg-red-800 border-red-600 text-red-100'
+                      }`}>
+                        <span className={esModificacion ? 'text-amber-300' : 'text-red-300'}>{item.cantidad}×</span>
+                        {item.nombre}
+                        <span className={`font-mono ${esModificacion ? 'text-amber-400' : 'text-red-400'}`}>S/ {parseFloat(item.precio || 0).toFixed(2)}</span>
+                        {item.notas && <span className={`italic ${esModificacion ? 'text-amber-300' : 'text-red-300'}`}>· {item.notas}</span>}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <button
+                  onClick={() => dismissCancelacion(c.id)}
+                  className={`shrink-0 px-4 py-2.5 font-black text-xs uppercase tracking-widest rounded-xl transition-all shadow-lg border text-white ${
+                    esModificacion
+                      ? 'bg-amber-600 hover:bg-amber-500 active:bg-amber-700 border-amber-400'
+                      : 'bg-amber-600 hover:bg-amber-500 active:bg-amber-700 border-amber-400'
+                  }`}
+                >
+                  ✓ Entendido
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 
