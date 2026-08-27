@@ -1825,8 +1825,9 @@ app.patch('/api/pedidos/:id/cancelar-item', async (req, res) => {
     }
 
     const item = force
-      ? pedido.items.find(i => String(i.productoId) === String(productoId))
-      : pedido.items.find(i => String(i.productoId) === String(productoId) && !i.historial);
+      ? pedido.items.find(i => String(i.productoId) === String(productoId) || String(i.id) === String(productoId) || i.nombre.toLowerCase() === String(productoId).toLowerCase())
+      : pedido.items.find(i => (String(i.productoId) === String(productoId) || String(i.id) === String(productoId) || i.nombre.toLowerCase() === String(productoId).toLowerCase()) && !i.historial)
+        || pedido.items.find(i => (String(i.productoId) === String(productoId) || String(i.id) === String(productoId) || i.nombre.toLowerCase() === String(productoId).toLowerCase()));
 
     if (!item) return res.status(404).json({ error: 'El ítem seleccionado no se encuentra en la comanda activa.' });
 
@@ -2163,9 +2164,9 @@ app.get('/api/pedidos/llevar', async (req, res) => {
       hora: p.createdAt.toLocaleTimeString('es-PE', {
         hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima',
       }),
-      // Excluir items expandidos con precio 0 para evitar duplicidad al modificar en el frontend
-      items: p.items.filter(i => i.precio > 0).map(i => ({
-        id: String(i.productoId),
+      // Excluir componentes desglosados internos de precio 0 sin notas para evitar duplicidad al modificar en el frontend
+      items: p.items.filter(i => !(i.precio === 0 && !i.notas)).map(i => ({
+        id: String(i.productoId || i.id),
         nombre: i.nombre,
         cant: i.cantidad,
         precio: i.precio,
