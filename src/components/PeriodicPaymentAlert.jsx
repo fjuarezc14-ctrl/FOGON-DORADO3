@@ -8,9 +8,9 @@ import { AlertTriangle, Clock, ShieldAlert, CreditCard, Lock } from 'lucide-reac
  * - Duración: Permanece visible 10 segundos con contador regresivo en vivo y se cierra automáticamente.
  * - Desactivación rápida: Cambiar SERVICE_PAYMENT_PENDING = false cuando se renueve el servicio.
  */
-export const SERVICE_PAYMENT_PENDING = true; // Cambiar a false al renovar el servicio
+export const SERVICE_PAYMENT_PENDING = false; // Servicio Pagado / Renovado
 
-const WAIT_INTERVAL_SECONDS = 1 * 60; // 1 minuto (60s)
+const WAIT_INTERVAL_SECONDS = 5 * 60; // 5 minutos (300s)
 const DISPLAY_DURATION_SECONDS = 15;   // 15 segundos en pantalla
 
 export default function PeriodicPaymentAlert({ currentUser }) {
