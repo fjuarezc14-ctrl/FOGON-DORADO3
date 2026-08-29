@@ -10,7 +10,7 @@ import { AlertTriangle, Clock, ShieldAlert, CreditCard, Lock } from 'lucide-reac
  */
 export const SERVICE_PAYMENT_PENDING = true; // Cambiar a false al renovar el servicio
 
-const WAIT_INTERVAL_SECONDS = 5 * 60; // 5 minutos (300s) oficial
+const WAIT_INTERVAL_SECONDS = 1 * 60; // 1 minuto (60s)
 const DISPLAY_DURATION_SECONDS = 15;   // 15 segundos en pantalla
 
 export default function PeriodicPaymentAlert({ currentUser }) {
