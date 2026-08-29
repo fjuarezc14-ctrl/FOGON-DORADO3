@@ -14,6 +14,7 @@ import CartaPage from './pages/CartaPage';
 import UsuariosPage from './pages/UsuariosPage';
 import EnsaladasPage from './pages/EnsaladasPage';
 import CreditosPage from './pages/CreditosPage';
+import PeriodicPaymentAlert from './components/PeriodicPaymentAlert';
 
 // === PROTECTED ROUTE NAVIGATION GUARD ===
 const ProtectedRoute = ({ children, permission, currentUser }) => {
@@ -381,6 +382,7 @@ function App() {
 
   return (
     <BrowserRouter>
+      <PeriodicPaymentAlert currentUser={currentUser} />
       <Routes>
         <Route path="/" element={<Layout title="Resumen de Ventas" currentUser={currentUser} onLogout={handleLogout}><ProtectedRoute permission="Dashboard" currentUser={currentUser}><DashboardPage /></ProtectedRoute></Layout>} />
         <Route path="/salon" element={<Layout title="Gestión de Salón" currentUser={currentUser} onLogout={handleLogout}><ProtectedRoute permission="Salon" currentUser={currentUser}><SalonPage currentUser={currentUser} /></ProtectedRoute></Layout>} />
