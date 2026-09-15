@@ -1802,7 +1802,8 @@ app.delete('/api/barra/cancelaciones/:id', (req, res) => {
 
 app.patch('/api/pedidos/:id/cancelar-item', async (req, res) => {
   const id = parseInt(req.params.id);
-  const { productoId, cantidadACancelar, motivo, canceladoPor, force } = req.body;
+  const { itemId, productoId, cantidadACancelar, motivo, canceladoPor, force } = req.body;
+  const targetId = itemId || productoId;
 
   try {
     const pedido = await prisma.pedido.findUnique({
@@ -1825,9 +1826,9 @@ app.patch('/api/pedidos/:id/cancelar-item', async (req, res) => {
     }
 
     const item = force
-      ? pedido.items.find(i => String(i.productoId) === String(productoId) || String(i.id) === String(productoId) || i.nombre.toLowerCase() === String(productoId).toLowerCase())
-      : pedido.items.find(i => (String(i.productoId) === String(productoId) || String(i.id) === String(productoId) || i.nombre.toLowerCase() === String(productoId).toLowerCase()) && !i.historial)
-        || pedido.items.find(i => (String(i.productoId) === String(productoId) || String(i.id) === String(productoId) || i.nombre.toLowerCase() === String(productoId).toLowerCase()));
+      ? pedido.items.find(i => String(i.id) === String(targetId) || String(i.productoId) === String(targetId) || (targetId && i.nombre && i.nombre.toLowerCase() === String(targetId).toLowerCase()))
+      : pedido.items.find(i => (String(i.id) === String(targetId) || String(i.productoId) === String(targetId) || (targetId && i.nombre && i.nombre.toLowerCase() === String(targetId).toLowerCase())) && !i.historial)
+        || pedido.items.find(i => String(i.id) === String(targetId) || String(i.productoId) === String(targetId) || (targetId && i.nombre && i.nombre.toLowerCase() === String(targetId).toLowerCase()));
 
     if (!item) return res.status(404).json({ error: 'El ítem seleccionado no se encuentra en la comanda activa.' });
 
@@ -1835,7 +1836,7 @@ app.patch('/api/pedidos/:id/cancelar-item', async (req, res) => {
       return res.status(400).json({ error: 'La cantidad a cancelar supera la cantidad pedida.' });
     }
 
-    // Registrar alerta roja para Cocina o Barra
+    // Registrar alerta para Cocina o Barra
     const mesaInfo = pedido.mesaId 
       ? `Mesa ${pedido.mesa?.numero || pedido.mesaId}` 
       : (pedido.codigoPedidosYa ? `🛵 ${pedido.codigoPedidosYa}` : 'Para Llevar/Delivery');
@@ -1867,11 +1868,14 @@ app.patch('/api/pedidos/:id/cancelar-item', async (req, res) => {
     const nuevaCantidad = item.cantidad - cantidadACancelar;
 
     // Restaurar stock
-    if (item.producto.tipoStock === 'limitado') {
-      await prisma.producto.update({
-        where: { id: item.productoId },
-        data: { stock: { increment: cantidadACancelar } },
-      });
+    if (item.productoId) {
+      const prod = item.producto || await prisma.producto.findUnique({ where: { id: item.productoId } });
+      if (prod && prod.tipoStock === 'limitado') {
+        await prisma.producto.update({
+          where: { id: item.productoId },
+          data: { stock: { increment: cantidadACancelar } },
+        });
+      }
     }
 
     const esUltimoItem = pedido.items.length === 1 && cantidadACancelar === item.cantidad;

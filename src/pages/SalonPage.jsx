@@ -171,6 +171,17 @@ export default function SalonPage({ currentUser }) {
   const [cancelandoPedido, setCancelandoPedido] = useState(false);
   const [tiempoRestante, setTiempoRestante] = useState(LIMITE_CANCELACION_MS);
 
+  // Modal Táctil de Anulación de Ítem Individual
+  const [cancelItemModal, setCancelItemModal] = useState({
+    open: false,
+    item: null,
+    supervisor: null,
+    cantidadACancelar: 1,
+    motivoSeleccionado: 'Comensal cambió de opinión',
+    motivoTexto: '',
+    loading: false,
+  });
+
   // Modal de Autorización PIN
   const [authModal, setAuthModal] = useState({ open: false, pin: '', error: '', callback: null, promptText: '' });
   const [supervisorAprobador, setSupervisorAprobador] = useState(null);
@@ -777,42 +788,57 @@ export default function SalonPage({ currentUser }) {
     }
   };
 
-  const handleCancelarItem = async (item, supervisor) => {
-    const motivo = prompt(`Escribe el motivo de cancelación para ${item.nombre}:`);
-    if (motivo === null) return;
-    if (!motivo.trim()) { alert("El motivo de cancelación es obligatorio."); return; }
-    
-    const cantStr = prompt(`Cantidad a cancelar (Máximo ${item.cant}):`, item.cant.toString());
-    if (cantStr === null) return;
-    const cant = parseInt(cantStr);
-    if (isNaN(cant) || cant <= 0 || cant > item.cant) { alert("Cantidad no válida."); return; }
+  const openCancelItemModal = (item, supervisor) => {
+    setCancelItemModal({
+      open: true,
+      item,
+      supervisor,
+      cantidadACancelar: 1,
+      motivoSeleccionado: 'Comensal cambió de opinión',
+      motivoTexto: '',
+      loading: false,
+    });
+  };
 
-    const isForce = mesaActual.estado === 'Servido' || item.historial;
+  const confirmCancelarItem = async () => {
+    if (!cancelItemModal.item) return;
+    const { item, supervisor, cantidadACancelar, motivoSeleccionado, motivoTexto } = cancelItemModal;
+    const motivoFinal = motivoTexto.trim() || motivoSeleccionado;
+    if (!motivoFinal) {
+      alert("Por favor ingresa o selecciona un motivo de anulación.");
+      return;
+    }
+
+    setCancelItemModal(prev => ({ ...prev, loading: true }));
+    const isForce = mesaActual?.estado === 'Servido' || item.historial;
 
     try {
       const res = await api.cancelarItemPedido(item.pedidoId, {
+        itemId: item.itemId,
         productoId: item.id,
-        cantidadACancelar: cant,
-        motivo: motivo.trim(),
+        cantidadACancelar,
+        motivo: motivoFinal,
         canceladoPor: supervisor ? `${supervisor.nombre} (${supervisor.rol})` : meseroGlobal,
         force: isForce,
       });
       if (res.error) throw new Error(res.error);
       
       await fetchMesas();
-      setModalOpen(false);
+      setCancelItemModal({ open: false, item: null, supervisor: null, cantidadACancelar: 1, motivoSeleccionado: 'Comensal cambió de opinión', motivoTexto: '', loading: false });
       
       if (res.pedidoVacio) {
+        setModalOpen(false);
         if (res.mesaLiberada) {
-          alert(`✅ Comanda anulada por completo. Mesa ${mesaActual.num} ahora está LIBRE.`);
+          alert(`✅ Comanda anulada por completo. Mesa ${mesaActual?.num} ahora está LIBRE.`);
         } else {
-          alert(`✅ Comanda anulada por completo. La mesa ${mesaActual.num} sigue activa con consumos previos.`);
+          alert(`✅ Comanda anulada por completo. La mesa ${mesaActual?.num} sigue activa con consumos previos.`);
         }
       } else {
-        alert(`✅ Se cancelaron ${cant} unidades de "${item.nombre}" correctamente.`);
+        alert(`✅ Se anularon ${cantidadACancelar} unidad(es) de "${item.nombre}" correctamente.`);
       }
     } catch (err) {
-      alert("Error al cancelar ítem: " + err.message);
+      alert("Error al anular ítem: " + err.message);
+      setCancelItemModal(prev => ({ ...prev, loading: false }));
     }
   };
 
@@ -1316,9 +1342,9 @@ export default function SalonPage({ currentUser }) {
                                       <button 
                                         onClick={() => {
                                           if (mesaActual.estado === 'Servido' || item.historial) {
-                                            requestSupervisorAuth(`Anular "${item.nombre}"`, (supervisor) => handleCancelarItem(item, supervisor));
+                                            requestSupervisorAuth(`Anular "${item.nombre}"`, (supervisor) => openCancelItemModal(item, supervisor));
                                           } else {
-                                            handleCancelarItem(item, null);
+                                            openCancelItemModal(item, null);
                                           }
                                         }} 
                                         title="Anular o reducir cantidad de este producto"
@@ -2406,6 +2432,127 @@ export default function SalonPage({ currentUser }) {
           }
         }
       `}</style>
+      {/* MODAL TÁCTIL DE ANULACIÓN DE ÍTEM (SALÓN) */}
+      {cancelItemModal.open && cancelItemModal.item && (
+        <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[220] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-slate-200 animate-scale-in">
+            <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-red-500 text-white flex items-center justify-center font-black">
+                  <Trash className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm uppercase tracking-tight">Anular Ítem del Pedido</h3>
+                  <p className="text-[10px] text-slate-400">Mesa {mesaActual?.num}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setCancelItemModal({ open: false, item: null, supervisor: null, cantidadACancelar: 1, motivoSeleccionado: 'Comensal cambió de opinión', motivoTexto: '', loading: false })}
+                disabled={cancelItemModal.loading}
+                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 bg-slate-50">
+              <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center">
+                <div>
+                  <p className="font-bold text-slate-900 text-xs uppercase leading-tight">{cancelItemModal.item.nombre}</p>
+                  <p className="text-[10px] text-slate-400 font-medium mt-0.5">Cantidad pedida: <strong className="text-slate-700 font-black">{cancelItemModal.item.cant} un.</strong></p>
+                </div>
+                <span className="font-mono font-black text-emerald-600 text-sm">S/ {(cancelItemModal.item.cant * cancelItemModal.item.precio).toFixed(2)}</span>
+              </div>
+
+              {/* Selector de cantidad a anular */}
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-500 tracking-wider mb-1.5">
+                  Cantidad a Anular:
+                </label>
+                <div className="flex items-center justify-center gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setCancelItemModal(prev => ({ ...prev, cantidadACancelar: Math.max(1, prev.cantidadACancelar - 1) }))}
+                    className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 font-black text-xl text-slate-700 flex items-center justify-center transition-all border border-slate-300"
+                  >
+                    -
+                  </button>
+                  <span className="font-mono font-black text-2xl text-slate-900 w-12 text-center">
+                    {cancelItemModal.cantidadACancelar}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCancelItemModal(prev => ({ ...prev, cantidadACancelar: Math.min(prev.item.cant, prev.cantidadACancelar + 1) }))}
+                    className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 font-black text-xl text-slate-700 flex items-center justify-center transition-all border border-slate-300"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {/* Chips de Motivos */}
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-500 tracking-wider mb-1.5">
+                  Motivo de Anulación:
+                </label>
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  {[
+                    "Comensal cambió de opinión",
+                    "Error de comanda / digitación",
+                    "Demora en preparación",
+                    "Plato agotado"
+                  ].map((motivo) => (
+                    <button
+                      key={motivo}
+                      type="button"
+                      onClick={() => setCancelItemModal(prev => ({ ...prev, motivoSeleccionado: motivo }))}
+                      className={`p-2 rounded-xl text-[10px] font-black uppercase tracking-tight text-center border transition-all ${
+                        cancelItemModal.motivoSeleccionado === motivo && !cancelItemModal.motivoTexto
+                          ? 'bg-red-500 border-red-600 text-white shadow-sm'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      {motivo}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  placeholder="Otro motivo personalizado (opcional)..."
+                  value={cancelItemModal.motivoTexto}
+                  onChange={(e) => setCancelItemModal(prev => ({ ...prev, motivoTexto: e.target.value }))}
+                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-red-500"
+                />
+              </div>
+            </div>
+
+            <div className="p-4 bg-white border-t border-slate-200 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setCancelItemModal({ open: false, item: null, supervisor: null, cantidadACancelar: 1, motivoSeleccionado: 'Comensal cambió de opinión', motivoTexto: '', loading: false })}
+                disabled={cancelItemModal.loading}
+                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black rounded-xl text-xs uppercase tracking-wider transition-all"
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                onClick={confirmCancelarItem}
+                disabled={cancelItemModal.loading}
+                className="flex-[2] py-3 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-black rounded-xl text-xs uppercase tracking-wider transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {cancelItemModal.loading ? (
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                ) : (
+                  <>
+                    <Trash className="w-4 h-4" /> Confirmar Anulación
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Receipt, X, Banknote, Search, CheckCircle, Clock, Sparkles, CreditCard, Wallet, Truck, PackageCheck, Plus, Calculator, Printer, Gift, Tag, Percent, Check, Users, Layers, Ban, AlertTriangle, Trash2, Lock, KeyRound } from 'lucide-react';
+import { Receipt, X, Banknote, Search, CheckCircle, Clock, Sparkles, CreditCard, Wallet, Truck, PackageCheck, Plus, Calculator, Printer, Gift, Tag, Percent, Check, Users, Layers, Ban, AlertTriangle, Trash, Trash2, Lock, KeyRound } from 'lucide-react';
 
 import { api } from '../api';
 
@@ -1424,6 +1424,96 @@ export default function CajaPage({ currentUser }) {
       setAnularError('Error al procesar devolución: ' + err.message);
     } finally {
       setAnularCargando(false);
+    }
+  };
+
+  // --- Modal Táctil de Anulación de Ítem en Caja ---
+  const [cancelarItemCajaModal, setCancelarItemCajaModal] = useState({
+    open: false,
+    item: null,
+    cantidadACancelar: 1,
+    motivoSeleccionado: 'Comensal cambió de opinión',
+    motivoTexto: '',
+    loading: false,
+  });
+
+  const abrirCancelarItemCajaModal = (item) => {
+    setCancelarItemCajaModal({
+      open: true,
+      item,
+      cantidadACancelar: 1,
+      motivoSeleccionado: 'Comensal cambió de opinión',
+      motivoTexto: '',
+      loading: false,
+    });
+  };
+
+  const confirmarCancelarItemCaja = async () => {
+    if (!cancelarItemCajaModal.item || !mesaSeleccionada || !mesaSeleccionada.pedidoData) return;
+    const { item, cantidadACancelar, motivoSeleccionado, motivoTexto } = cancelarItemCajaModal;
+    const motivoFinal = motivoTexto.trim() || motivoSeleccionado;
+    if (!motivoFinal) {
+      alert("Por favor ingresa o selecciona un motivo de anulación.");
+      return;
+    }
+
+    setCancelarItemCajaModal(prev => ({ ...prev, loading: true }));
+    const pedidoId = mesaSeleccionada.pedidoData.pedidoId;
+
+    try {
+      const res = await api.cancelarItemPedido(pedidoId, {
+        itemId: item.itemId,
+        productoId: item.id,
+        cantidadACancelar,
+        motivo: motivoFinal,
+        canceladoPor: cajeroNombre || 'Cajero',
+        force: true
+      });
+
+      if (res.error) throw new Error(res.error);
+
+      if (res.pedidoVacio) {
+        setCancelarItemCajaModal({ open: false, item: null, cantidadACancelar: 1, motivoSeleccionado: 'Comensal cambió de opinión', motivoTexto: '', loading: false });
+        setMesaSeleccionada(null);
+        await fetchCajaData();
+        alert(`✅ Comanda anulada por completo. La mesa ${mesaSeleccionada.num} ahora está LIBRE.`);
+      } else {
+        // Actualización inmediata del estado local de mesaSeleccionada
+        setMesaSeleccionada(prev => {
+          if (!prev || !prev.pedidoData) return prev;
+          const itemsViejos = prev.pedidoData.items || [];
+          const itemsNuevos = [];
+
+          itemsViejos.forEach(it => {
+            if (it.itemId === item.itemId || String(it.id) === String(item.id)) {
+              const nuevaCant = it.cant - cantidadACancelar;
+              if (nuevaCant > 0) {
+                itemsNuevos.push({ ...it, cant: nuevaCant });
+              }
+            } else {
+              itemsNuevos.push(it);
+            }
+          });
+
+          const nuevoTotal = itemsNuevos.reduce((sum, it) => sum + (it.cant * it.precio), 0);
+
+          return {
+            ...prev,
+            pedidoData: {
+              ...prev.pedidoData,
+              total: nuevoTotal,
+              items: itemsNuevos
+            }
+          };
+        });
+
+        setCancelarItemCajaModal({ open: false, item: null, cantidadACancelar: 1, motivoSeleccionado: 'Comensal cambió de opinión', motivoTexto: '', loading: false });
+        fetchCajaData(); // refrescar en segundo plano
+        alert(`✅ Se anularon ${cantidadACancelar} unidad(es) de "${item.nombre}" correctamente.`);
+      }
+    } catch (err) {
+      alert("Error al anular ítem en caja: " + err.message);
+      setCancelarItemCajaModal(prev => ({ ...prev, loading: false }));
     }
   };
 
@@ -3769,7 +3859,7 @@ export default function CajaPage({ currentUser }) {
                       return (
                         <li key={idx} className="flex flex-col border-b border-dashed border-slate-100 pb-1.5 last:border-0 last:pb-0">
                           <div className="flex justify-between items-center text-xs">
-                            <span className="text-slate-800 font-medium flex items-center gap-2">
+                            <span className="text-slate-800 font-medium flex items-center gap-1.5">
                               <input
                                 type="checkbox"
                                 checked={cortesiaItemIds.includes(item.itemId)}
@@ -3783,7 +3873,15 @@ export default function CajaPage({ currentUser }) {
                                 className="w-3.5 h-3.5 rounded border-slate-350 text-emerald-500 focus:ring-emerald-500 cursor-pointer"
                                 title="Marcar como Cortesía (S/ 0.00)"
                               />
-                              <span className="font-black text-slate-900 mr-1.5">{item.cant}x</span>
+                              <button
+                                type="button"
+                                onClick={() => abrirCancelarItemCajaModal(item)}
+                                title="Anular o reducir cantidad de este plato"
+                                className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-200 shrink-0"
+                              >
+                                <Trash className="w-3.5 h-3.5" />
+                              </button>
+                              <span className="font-black text-slate-900 ml-0.5 mr-1.5">{item.cant}x</span>
                               <span className={`uppercase ${cortesiaItemIds.includes(item.itemId) ? 'line-through text-slate-400' : ''}`}>{item.nombre}</span>
                             </span>
                             <span className="font-mono text-slate-600 font-bold shrink-0 flex items-center gap-1.5">
@@ -6417,6 +6515,127 @@ export default function CajaPage({ currentUser }) {
           );
         })}
       </div>
+      {/* MODAL TÁCTIL DE ANULACIÓN DE ÍTEM EN CAJA */}
+      {cancelarItemCajaModal.open && cancelarItemCajaModal.item && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[300] flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-slate-200 animate-scale-in">
+            <div className="p-4 bg-slate-900 text-white flex justify-between items-center">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-red-500 text-white flex items-center justify-center font-black">
+                  <Trash className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm uppercase tracking-tight">Anular Plato / Ítem (Caja)</h3>
+                  <p className="text-[10px] text-slate-400">Mesa {mesaSeleccionada?.num}</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setCancelarItemCajaModal({ open: false, item: null, cantidadACancelar: 1, motivoSeleccionado: 'Comensal cambió de opinión', motivoTexto: '', loading: false })}
+                disabled={cancelarItemCajaModal.loading}
+                className="text-slate-400 hover:text-white p-1.5 rounded-xl hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 bg-slate-50">
+              <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm flex justify-between items-center">
+                <div>
+                  <p className="font-bold text-slate-900 text-xs uppercase leading-tight">{cancelarItemCajaModal.item.nombre}</p>
+                  <p className="text-[10px] text-slate-400 font-medium mt-0.5">Cantidad pedida: <strong className="text-slate-700 font-black">{cancelarItemCajaModal.item.cant} un.</strong></p>
+                </div>
+                <span className="font-mono font-black text-emerald-600 text-sm">S/ {(cancelarItemCajaModal.item.cant * cancelarItemCajaModal.item.precio).toFixed(2)}</span>
+              </div>
+
+              {/* Selector de cantidad a anular */}
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-500 tracking-wider mb-1.5">
+                  Cantidad a Anular:
+                </label>
+                <div className="flex items-center justify-center gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setCancelarItemCajaModal(prev => ({ ...prev, cantidadACancelar: Math.max(1, prev.cantidadACancelar - 1) }))}
+                    className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 font-black text-xl text-slate-700 flex items-center justify-center transition-all border border-slate-300"
+                  >
+                    -
+                  </button>
+                  <span className="font-mono font-black text-2xl text-slate-900 w-12 text-center">
+                    {cancelarItemCajaModal.cantidadACancelar}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCancelarItemCajaModal(prev => ({ ...prev, cantidadACancelar: Math.min(prev.item.cant, prev.cantidadACancelar + 1) }))}
+                    className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 active:scale-95 font-black text-xl text-slate-700 flex items-center justify-center transition-all border border-slate-300"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              {/* Chips de Motivos */}
+              <div>
+                <label className="block text-[10px] font-black uppercase text-slate-500 tracking-wider mb-1.5">
+                  Motivo de Anulación:
+                </label>
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  {[
+                    "Comensal cambió de opinión",
+                    "Error de digitación/comanda",
+                    "Plato no consumido / devuelto",
+                    "Demora en despacho"
+                  ].map((motivo) => (
+                    <button
+                      key={motivo}
+                      type="button"
+                      onClick={() => setCancelarItemCajaModal(prev => ({ ...prev, motivoSeleccionado: motivo }))}
+                      className={`p-2 rounded-xl text-[10px] font-black uppercase tracking-tight text-center border transition-all ${
+                        cancelarItemCajaModal.motivoSeleccionado === motivo && !cancelarItemCajaModal.motivoTexto
+                          ? 'bg-red-500 border-red-600 text-white shadow-sm'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      {motivo}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="text"
+                  placeholder="Otro motivo personalizado (opcional)..."
+                  value={cancelarItemCajaModal.motivoTexto}
+                  onChange={(e) => setCancelarItemCajaModal(prev => ({ ...prev, motivoTexto: e.target.value }))}
+                  className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-red-500"
+                />
+              </div>
+            </div>
+
+            <div className="p-4 bg-white border-t border-slate-200 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setCancelarItemCajaModal({ open: false, item: null, cantidadACancelar: 1, motivoSeleccionado: 'Comensal cambió de opinión', motivoTexto: '', loading: false })}
+                disabled={cancelarItemCajaModal.loading}
+                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black rounded-xl text-xs uppercase tracking-wider transition-all"
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarCancelarItemCaja}
+                disabled={cancelarItemCajaModal.loading}
+                className="flex-[2] py-3 bg-red-600 hover:bg-red-700 active:scale-95 text-white font-black rounded-xl text-xs uppercase tracking-wider transition-all shadow-lg flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {cancelarItemCajaModal.loading ? (
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                ) : (
+                  <>
+                    <Trash className="w-4 h-4" /> Confirmar Anulación
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
