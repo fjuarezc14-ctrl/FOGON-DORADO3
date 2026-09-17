@@ -40,7 +40,7 @@ export default defineConfig({
     })
   ],
   server: {
-    allowedHosts: ['fogon.valetec.pe', 'localhost', '127.0.0.1', '192.168.100.93', true],
+    allowedHosts: true, // Permite todos los hosts incluyendo fogon3.valetec.pe, fogon.valetec.pe, IPs locales y tunnels
     host: true, // Escucha en todas las IPs locales y de red (necesario para Docker)
     port: 5176,
     hmr: {
